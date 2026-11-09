@@ -41,7 +41,7 @@ if command -v gitleaks >/dev/null 2>&1; then
   fi
 else
   echo "  [warn] gitleaks not installed - only the built-in IBAN/file checks ran."
-  echo "         Install it for full scanning: winget install gitleaks.gitleaks"
+  echo "         Install it for full scanning: winget search gitleaks (then winget install <id>)"
 fi
 
 exit 0

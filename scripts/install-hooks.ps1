@@ -7,5 +7,5 @@ Set-Location $root
 git config core.hooksPath .githooks
 Write-Host "Pre-commit secret guard enabled (core.hooksPath=.githooks)."
 if (-not (Get-Command gitleaks -ErrorAction SilentlyContinue)) {
-    Write-Host "Tip: install gitleaks for full scanning:  winget install gitleaks.gitleaks"
+    Write-Host "Tip: install gitleaks for full scanning: run  winget search gitleaks  and install the listed id"
 }
