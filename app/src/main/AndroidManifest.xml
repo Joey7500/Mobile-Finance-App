@@ -8,6 +8,7 @@
     <!-- allowBackup=false + dataExtractionRules: financial data never goes to
          Google cloud backup or adb backup. -->
     <application
+        android:name=".VaultFlowApp"
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
