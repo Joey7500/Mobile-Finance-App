@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secret-scan:
+    name: Secret & PII scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # scan the full history, not just the last commit
+      - name: Install gitleaks
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
+            | sudo tar xz -C /usr/local/bin gitleaks
+          gitleaks version
+      - name: Scan repository history
+        run: gitleaks git --redact --verbose --no-banner --config .gitleaks.toml .
+
+  build:
+    name: Build, unit tests & debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and test
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace \
+            :core:domain:test :app:testDebugUnitTest :app:assembleDebug 2>&1 | tee build.log
+
+      - name: Surface failure as annotation
+        if: failure()
+        shell: bash
+        run: |
+          { grep -nE "^e: |error:|What went wrong|FAILED|Could not|expected|Exception" build.log || tail -n 80 build.log; } \
+            | head -n 80 > errors.txt
+          msg=$(sed -e 's/%/%25/g' -e 's/\r/%0D/g' errors.txt | sed ':a;N;$!ba;s/\n/%0A/g')
+          echo "::error title=Build failed::${msg}"
+
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            core/domain/build/reports/tests/
+            app/build/reports/tests/
+          if-no-files-found: ignore
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: vaultflow-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 14

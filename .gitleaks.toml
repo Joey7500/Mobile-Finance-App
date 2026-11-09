@@ -1,0 +1,46 @@
+# VaultFlow secret & personal-data scanner.
+#
+# `useDefault = true` keeps gitleaks' ~150 built-in rules (AWS, Google, GitHub,
+# private keys, ...) and ADDS the finance-specific rules below. Without it a
+# custom config silently replaces the defaults.
+title = "VaultFlow secret & PII scanner"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "czech-or-slovak-iban"
+description = "Czech/Slovak IBAN (CZ/SK + 22 digits, optional spaces)"
+regex = '''\b(?:CZ|SK)\d{2}[ ]?\d{4}[ ]?\d{4}[ ]?\d{4}[ ]?\d{4}[ ]?\d{4}\b'''
+tags = ["pii", "iban"]
+
+[[rules]]
+id = "czech-bank-account"
+description = "Czech domestic account number (prefix-number/bankcode)"
+regex = '''\b(?:\d{1,6}-)?\d{6,10}/(?:0100|0300|0600|0710|0800|2010|2060|2070|2250|2700|3030|3050|3060|5500|6000|6100|6210|6363|8040)\b'''
+tags = ["pii", "bank-account"]
+
+[[rules]]
+id = "trading212-credentials"
+description = "Hard-coded Trading 212 API key or secret"
+regex = '''(?i)(?:t212|trading_?212)[\w.-]{0,20}(?:key|secret|token)[\w-]{0,10}\s*[:=]\s*["']?[A-Za-z0-9_\-+/=]{16,}'''
+tags = ["key", "trading212"]
+
+[[rules]]
+id = "basic-auth-header"
+description = "Hard-coded HTTP Basic Authorization header"
+regex = '''(?i)authorization["']?\s*[:=]\s*["']?basic\s+[A-Za-z0-9+/=]{16,}'''
+tags = ["key", "auth"]
+
+[[rules]]
+id = "signing-password"
+description = "Keystore / signing password in a properties or gradle file"
+regex = '''(?i)(?:store|key)_?password\s*[:=]\s*["']?[^\s"'$]{6,}'''
+tags = ["key", "signing"]
+
+[allowlist]
+description = "Generated or binary files"
+paths = [
+  '''gradle/wrapper/gradle-wrapper\.jar''',
+  '''app/schemas/.*\.json''',
+]

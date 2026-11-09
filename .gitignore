@@ -1,0 +1,54 @@
+# ───────────────────────── Android / Gradle build output ─────────────────────────
+.gradle/
+build/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+output-metadata.json
+
+# ───────────────────────── IDE ─────────────────────────
+.idea/
+*.iml
+.vscode/
+.kotlin/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ───────────────────────── Machine-local config ─────────────────────────
+# Android Studio writes your SDK path here. Never commit it.
+local.properties
+
+# ───────────────────────── SIGNING KEYS & SECRETS (never commit) ─────────────────────────
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+keystore.properties
+secrets.properties
+signing/
+.env
+.env.*
+
+# ───────────────────────── PERSONAL FINANCE DATA (never commit) ─────────────────────────
+# Real merchant/IBAN rules, exported bank statements, DB dumps and app backups.
+*.local.json
+rules.local.json
+*.csv
+*.xlsx
+*.ofx
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlcipher
+*.bak
+*.vfbackup
+exports/
+personal/

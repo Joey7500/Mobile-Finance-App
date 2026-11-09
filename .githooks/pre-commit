@@ -1,0 +1,47 @@
+#!/bin/sh
+# VaultFlow pre-commit guard. Enabled by scripts/install-hooks.(sh|ps1), which
+# points git's core.hooksPath at this versioned folder.
+#
+# Layer 1: block forbidden file types by name (works without any tools).
+# Layer 2: block Czech IBANs / account numbers in the staged diff (works without any tools).
+# Layer 3: full gitleaks scan when gitleaks is installed.
+
+fail() {
+  echo ""
+  echo "  [BLOCKED] $1"
+  echo "  Nothing was committed. Remove the file/line (git restore --staged <file>) and try again."
+  echo ""
+  exit 1
+}
+
+staged_files=$(git diff --cached --name-only --diff-filter=ACMR)
+
+# ---- Layer 1: forbidden files -------------------------------------------------
+for f in $staged_files; do
+  case "$f" in
+    local.properties|*/local.properties|keystore.properties|*/keystore.properties|secrets.properties|*.jks|*.keystore|*.p12|*.pem|*.db|*.sqlite|*.vfbackup|*.csv|*.local.json|.env|.env.*)
+      fail "Refusing to commit sensitive file: $f"
+      ;;
+  esac
+done
+
+# ---- Layer 2: IBAN / account-number patterns in added lines ------------------
+added=$(git diff --cached -U0 --diff-filter=ACMR -- . ':(exclude)gradle/wrapper/gradle-wrapper.jar' | grep -E '^\+' | grep -vE '^\+\+\+')
+if printf '%s\n' "$added" | grep -qE '(CZ|SK)[0-9]{2} ?[0-9]{4} ?[0-9]{4} ?[0-9]{4} ?[0-9]{4} ?[0-9]{4}'; then
+  fail "A staged line looks like a real IBAN."
+fi
+if printf '%s\n' "$added" | grep -qE '([0-9]{1,6}-)?[0-9]{6,10}/(0100|0300|0600|0710|0800|2010|2060|2070|2250|2700|3030|3050|3060|5500|6000|6100|6210|6363|8040)'; then
+  fail "A staged line looks like a real Czech bank account number."
+fi
+
+# ---- Layer 3: gitleaks --------------------------------------------------------
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! gitleaks git --pre-commit --staged --redact --no-banner --config .gitleaks.toml . ; then
+    fail "gitleaks found a potential secret (see output above)."
+  fi
+else
+  echo "  [warn] gitleaks not installed - only the built-in IBAN/file checks ran."
+  echo "         Install it for full scanning: winget install gitleaks.gitleaks"
+fi
+
+exit 0

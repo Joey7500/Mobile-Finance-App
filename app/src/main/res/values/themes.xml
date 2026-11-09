@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="vault_background">#FF0B0F17</color>
+    <color name="vault_accent">#FF34D399</color>
+
+    <style name="Theme.VaultFlow" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/vault_background</item>
+        <item name="android:statusBarColor">@color/vault_background</item>
+        <item name="android:navigationBarColor">@color/vault_background</item>
+        <item name="android:colorAccent">@color/vault_accent</item>
+    </style>
+</resources>
