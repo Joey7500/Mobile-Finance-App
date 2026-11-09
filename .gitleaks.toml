@@ -43,4 +43,5 @@ description = "Generated or binary files"
 paths = [
   '''gradle/wrapper/gradle-wrapper\.jar''',
   '''app/schemas/.*\.json''',
+  '''keystore\.properties\.example''',
 ]

@@ -1,0 +1,70 @@
+name: Release APK
+
+# Builds a release APK signed with YOUR keystore, stored as GitHub Actions
+# secrets (never in the repo). Trigger by pushing a tag like v1.0.0, or run
+# manually from the Actions tab. See docs/SECURITY.md, step "Signing secrets".
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      HAS_KEYSTORE: ${{ secrets.VAULTFLOW_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Require signing secrets
+        if: env.HAS_KEYSTORE != 'true'
+        run: |
+          echo "::error::Signing secrets are missing. Add VAULTFLOW_KEYSTORE_BASE64, VAULTFLOW_KEYSTORE_PASSWORD, VAULTFLOW_KEY_ALIAS and VAULTFLOW_KEY_PASSWORD in Settings > Secrets and variables > Actions."
+          exit 1
+
+      - name: Restore keystore from secret
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/signing"
+          echo "${{ secrets.VAULTFLOW_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/signing/release.jks"
+          echo "VAULTFLOW_KEYSTORE_PATH=$RUNNER_TEMP/signing/release.jks" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        env:
+          VAULTFLOW_KEYSTORE_PASSWORD: ${{ secrets.VAULTFLOW_KEYSTORE_PASSWORD }}
+          VAULTFLOW_KEY_ALIAS: ${{ secrets.VAULTFLOW_KEY_ALIAS }}
+          VAULTFLOW_KEY_PASSWORD: ${{ secrets.VAULTFLOW_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon :core:domain:test :app:assembleRelease
+
+      - name: Remove keystore
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/signing"
+
+      - name: Rename APK
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          cp app/build/outputs/apk/release/app-release.apk "vaultflow-${VERSION}.apk"
+          echo "APK=vaultflow-${VERSION}.apk" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.APK }}
+          generate_release_notes: true
+
+      - name: Upload APK (manual runs)
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: vaultflow-release-apk
+          path: ${{ env.APK }}
