@@ -19,11 +19,6 @@ transfer data (not a charge-only cable), and about 15 GB free on the PC.
 2. **Get the project.** The repo is already cloned into
    git pull
    ```
-
-   > **OneDrive warning:** Gradle creates thousands of files in `build/`
-   > folders. OneDrive syncing them slows everything down and sometimes locks
-   > files mid-build ("Unable to delete directory"). If you hit that, either
-   > pause OneDrive while building, or clone to a non-synced folder instead:
    > `git clone https://github.com/Joey7500/Mobile-Finance-App.git C:\dev\Mobile-Finance-App`
 
 3. **Turn on the secret guard** (blocks commits that contain keys, IBANs or
