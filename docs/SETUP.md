@@ -17,9 +17,6 @@ transfer data (not a charge-only cable), and about 15 GB free on the PC.
    Close and reopen PowerShell afterwards.
 
 2. **Get the project.** The repo is already cloned into
-   `C:\Users\josef\OneDrive\Dokumenty\FinanceApp`. To update it later:
-   ```powershell
-   cd "C:\Users\josef\OneDrive\Dokumenty\FinanceApp"
    git pull
    ```
 
