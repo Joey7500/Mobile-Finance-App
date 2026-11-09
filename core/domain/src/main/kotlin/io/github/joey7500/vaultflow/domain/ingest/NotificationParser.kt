@@ -109,13 +109,28 @@ object NotificationParser {
                 if (candidate.length >= 2 && !AmountParser.containsMoney(candidate)) return candidate
             }
         }
-        // Fallback: the body without the amount, else the title.
+        // Many banks (e.g. George) put the merchant in the TITLE and a generic
+        // "72,90 CZK paid by card 1234." in the body: prefer a non-generic title.
+        val cleanTitle = clean(title)
+        if (cleanTitle.length >= 2 && !isGenericTitle(cleanTitle)) return cleanTitle
         val stripped = clean(stripAmounts(body))
         return when {
             stripped.length in 2..60 -> stripped
-            title.isNotBlank() -> clean(title)
+            cleanTitle.isNotBlank() -> cleanTitle
             else -> stripped.take(60)
         }
+    }
+
+    private val GENERIC_TITLE_WORDS = setOf(
+        "platba", "kartou", "karta", "karty", "odchozi", "prichozi", "transakce", "prevod", "uhrada",
+        "payment", "card", "transaction", "incoming", "outgoing", "transfer", "received", "sent",
+        "vraceni", "refund", "vyber", "bankomat", "atm", "nova", "new", "z", "na", "uctu", "ucet", "account",
+    )
+
+    /** "Platba kartou", "Příchozí platba", "Card payment" carry no merchant. */
+    private fun isGenericTitle(title: String): Boolean {
+        val words = TextNormalizer.lowerAscii(title).split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
+        return words.isEmpty() || words.all { it in GENERIC_TITLE_WORDS || it.all(Char::isDigit) }
     }
 
     private fun stripAmounts(s: String): String {
@@ -127,5 +142,7 @@ object NotificationParser {
     }
 
     private fun clean(s: String): String =
-        s.replace(Regex("[\\s\\u00A0\\u202F]+"), " ").trim().trim('.', ',', ':', ';', '-', '–').trim().take(60)
+        s.replace(Regex("[\\s\\u00A0\\u202F]+"), " ").trim()
+            .replace(Regex("^[^\\p{L}\\p{N}]+"), "") // leading emoji / symbols ("💳 VUT PRODEJNA 1")
+            .trim().trim('.', ',', ':', ';', '-', '–').trim().take(60)
 }

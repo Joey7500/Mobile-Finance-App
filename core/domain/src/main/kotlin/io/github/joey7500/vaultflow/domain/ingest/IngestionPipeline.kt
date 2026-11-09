@@ -19,7 +19,17 @@ data class IngestContext(
     val recentTransactions: List<Transaction>,
     /** Latest ČNB rates for converting foreign-currency spend. */
     val fx: FxRates?,
+    /** Card digits (e.g. "3953") -> account id. Wins over [accountId] when the text mentions the card. */
+    val cardAccounts: Map<String, Long> = emptyMap(),
 )
+
+/** Finds the account whose card digits appear in the notification as a standalone number. */
+fun resolveCardAccount(text: String, cardAccounts: Map<String, Long>): Long? =
+    cardAccounts.entries
+        .filter { it.key.length >= 4 }
+        .sortedByDescending { it.key.length }
+        .firstOrNull { (digits, _) -> Regex("(?<!\\d)" + Regex.escape(digits) + "(?!\\d)").containsMatchIn(text) }
+        ?.value
 
 sealed interface IngestDecision {
     data class Insert(val transaction: Transaction) : IngestDecision
@@ -63,7 +73,7 @@ object IngestionPipeline {
             currency = parsed.currency,
             amountCzkMinor = czkMinor,
             merchant = parsed.merchant,
-            accountId = ctx.accountId,
+            accountId = resolveCardAccount(listOfNotNull(title, text).joinToString(" "), ctx.cardAccounts) ?: ctx.accountId,
             categoryId = categoryId,
             source = source,
             // A foreign-currency amount is only an estimate until the bank settles it.

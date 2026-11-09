@@ -98,7 +98,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         say("Reserve floor updated")
     }
 
-    fun saveAccount(existing: Account?, name: String, type: AccountType, balanceMinor: Long, liquid: Boolean, ownIds: String) =
+    fun saveAccount(existing: Account?, name: String, type: AccountType, balanceMinor: Long, liquid: Boolean, ownIds: String, cardIds: String) =
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             val prev = existing?.let { e -> c.finance.accountEntities().firstOrNull { it.id == e.id } }
@@ -112,6 +112,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
                     anchorDateMillis = if (balanceChanged) now else prev!!.anchorDateMillis,
                     isLiquid = liquid,
                     ownIdentifiers = ownIds.trim(),
+                    cardIdentifiers = cardIds.lines().map { l -> l.filter(Char::isDigit) }.filter { it.length >= 4 }.joinToString("\n"),
                     sortOrder = prev?.sortOrder ?: state.value.accounts.size,
                 ),
             )

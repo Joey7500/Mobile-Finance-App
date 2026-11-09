@@ -1,5 +1,6 @@
 package io.github.joey7500.vaultflow.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -54,6 +55,9 @@ data class AccountEntity(
     /** Newline-separated fragments of your own account numbers (encrypted DB only). */
     val ownIdentifiers: String,
     val sortOrder: Int = 0,
+    /** Newline-separated last digits of cards linked to this account (added in DB v2). */
+    @ColumnInfo(defaultValue = "''")
+    val cardIdentifiers: String = "",
 )
 
 @Serializable

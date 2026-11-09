@@ -43,6 +43,7 @@ fun AccountEntity.toDomain() = Account(
     id = id, name = name, type = enumOr(type, AccountType.BANK), anchorBalanceMinor = anchorBalanceMinor,
     anchorDateMillis = anchorDateMillis, isLiquid = isLiquid,
     ownIdentifiers = ownIdentifiers.lines().map { it.trim() }.filter { it.isNotEmpty() },
+    cardIdentifiers = cardIdentifiers.lines().map { it.filter(Char::isDigit) }.filter { it.length >= 4 },
 )
 
 fun RuleEntity.toDomain() = ClassificationRule(

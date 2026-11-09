@@ -188,7 +188,11 @@ class FinanceRepository(
 
             val fx = settings.cachedFx() ?: runCatching { CnbClient.dailyRates() }.getOrNull()?.also { settings.saveFx(it, now) }
             val categoryIds = db.categories().getAll().filter { it.key != null }.associate { it.key!! to it.id }
-            val ownIds = db.accounts().getAll().flatMap { it.toDomain().ownIdentifiers }
+            val accounts = db.accounts().getAll().map { it.toDomain() }
+            val cardDigits = accounts.flatMap { it.cardIdentifiers }.toSet()
+            val ownIds = accounts.flatMap { it.ownIdentifiers }
+                .filter { id -> id.filter(Char::isDigit) !in cardDigits }
+            val cardAccounts = accounts.flatMap { a -> a.cardIdentifiers.map { it to a.id } }.toMap()
             val ctx = IngestContext(
                 accountId = sender.accountId,
                 rules = db.rules().getAll().map { it.toDomain() },
@@ -196,6 +200,7 @@ class FinanceRepository(
                 categoryIdByKey = categoryIds,
                 recentTransactions = db.transactions().getSince(postedAt - 30 * 60 * 1000L).map { it.toDomain() },
                 fx = fx,
+                cardAccounts = cardAccounts,
             )
 
             val (outcome, txId) = when (val d = IngestionPipeline.process(packageName, key, postedAt, title, text, ctx)) {

@@ -54,4 +54,20 @@ class IngestionPipelineTest {
     @Test fun `otp is skipped`() {
         assertTrue(IngestionPipeline.process("com.example.bank", "k", 1, "Ověření", "Kód pro platbu 300 Kč: 123456", ctx()) is IngestDecision.Skip)
     }
+
+    @Test fun `card digits route the payment to the right account`() {
+        val c = ctx().copy(accountId = 1, cardAccounts = mapOf("3953" to 7L, "1111" to 8L))
+        val d = IngestionPipeline.process("cz.csas.georgego", "k", 1, "VUT PRODEJNA 1", "72,90 CZK paid by card 3953.", c)
+        assertEquals(7L, (d as IngestDecision.Insert).transaction.accountId)
+    }
+
+    @Test fun `unknown card falls back to the app's account`() {
+        val c = ctx().copy(accountId = 1, cardAccounts = mapOf("1111" to 8L))
+        val d = IngestionPipeline.process("cz.csas.georgego", "k", 1, "VUT PRODEJNA 1", "72,90 CZK paid by card 3953.", c)
+        assertEquals(1L, (d as IngestDecision.Insert).transaction.accountId)
+    }
+
+    @Test fun `card digits must be a standalone number`() {
+        assertNull(resolveCardAccount("ref 139530 paid", mapOf("3953" to 7L)))
+    }
 }

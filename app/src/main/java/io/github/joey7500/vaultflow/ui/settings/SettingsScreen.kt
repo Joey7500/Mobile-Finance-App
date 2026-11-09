@@ -163,6 +163,7 @@ fun SettingsScreen(onRestartRequested: () -> Unit) {
                         Text(a.name, style = MaterialTheme.typography.bodyMedium)
                         Text(
                             a.type.name.lowercase().replaceFirstChar { it.uppercase() } + (if (a.isLiquid) " · counts to reserve" else "") +
+                                (if (a.cardIdentifiers.isNotEmpty()) " · card " + a.cardIdentifiers.joinToString(", ") { "••$it" } else "") +
                                 (if (a.ownIdentifiers.isNotEmpty()) " · ${a.ownIdentifiers.size} transfer id(s)" else ""),
                             style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
                         )
@@ -318,7 +319,7 @@ fun SettingsScreen(onRestartRequested: () -> Unit) {
         AccountDialog(
             existing = editAccount,
             currentBalance = editAccount?.let { state.balances[it.id] },
-            onSave = { name, type, bal, liquid, ids -> vm.saveAccount(editAccount, name, type, bal, liquid, ids); editAccount = null; addingAccount = false },
+            onSave = { name, type, bal, liquid, ids, cards -> vm.saveAccount(editAccount, name, type, bal, liquid, ids, cards); editAccount = null; addingAccount = false },
             onDelete = { editAccount?.let(vm::deleteAccount); editAccount = null },
             onDismiss = { editAccount = null; addingAccount = false },
         )
@@ -378,7 +379,7 @@ private fun friendlyPackage(pkg: String): String = when (pkg) {
 private fun AccountDialog(
     existing: Account?,
     currentBalance: Long?,
-    onSave: (String, AccountType, Long, Boolean, String) -> Unit,
+    onSave: (String, AccountType, Long, Boolean, String, String) -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -387,6 +388,7 @@ private fun AccountDialog(
     var balance by remember { mutableStateOf((currentBalance ?: existing?.anchorBalanceMinor)?.let { minorToInput(it) } ?: "") }
     var liquid by remember { mutableStateOf(existing?.isLiquid ?: true) }
     var ids by remember { mutableStateOf(existing?.ownIdentifiers?.joinToString("\n") ?: "") }
+    var cards by remember { mutableStateOf(existing?.cardIdentifiers?.joinToString("\n") ?: "") }
     val parsed = parseMoneyInput(balance)
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -402,14 +404,20 @@ private fun AccountDialog(
                 MoneyField(balance, { balance = it }, "Balance right now")
                 CheckRow(liquid, { liquid = it }, "Counts towards the reserve floor (liquid cash)")
                 OutlinedTextField(
+                    cards, { cards = it },
+                    label = { Text("Last 4 digits of cards on this account") },
+                    supportingText = { Text("One per line, e.g. 3953. A card payment notification mentioning them is booked to this account.") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
                     ids, { ids = it },
-                    label = { Text("Your account number digits (optional)") },
-                    supportingText = { Text("One per line, e.g. the last 6 digits. Payments mentioning them are treated as internal transfers. Stored only in the encrypted database.") },
+                    label = { Text("Your ACCOUNT number digits (optional)") },
+                    supportingText = { Text("Not card digits! One per line, e.g. the last 6 digits of the account number. Payments mentioning them are treated as internal transfers.") },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
         },
-        confirmButton = { TextButton(enabled = parsed != null, onClick = { parsed?.let { onSave(name, type, it, liquid, ids) } }) { Text("Save") } },
+        confirmButton = { TextButton(enabled = parsed != null, onClick = { parsed?.let { onSave(name, type, it, liquid, ids, cards) } }) { Text("Save") } },
         dismissButton = {
             Row {
                 if (existing != null) TextButton(onClick = onDelete) { Text("Delete", color = VaultColors.Rose) }

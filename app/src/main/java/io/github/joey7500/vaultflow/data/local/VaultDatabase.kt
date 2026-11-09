@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import io.github.joey7500.vaultflow.core.security.DatabaseKeyManager
 import io.github.joey7500.vaultflow.data.local.dao.AccountDao
 import io.github.joey7500.vaultflow.data.local.dao.CaptureLogDao
@@ -37,7 +39,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         CaptureLogEntity::class,
         SettingEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class VaultDatabase : RoomDatabase() {
@@ -54,6 +56,13 @@ abstract class VaultDatabase : RoomDatabase() {
     companion object {
         private const val DB_NAME = "vaultflow.db"
 
+        /** v1 -> v2: card digits per account, used to route card payments. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE accounts ADD COLUMN cardIdentifiers TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         /**
          * The real vault: SQLCipher (AES-256) encrypted, keyed by a passphrase
          * wrapped in the hardware Keystore.
@@ -67,6 +76,7 @@ abstract class VaultDatabase : RoomDatabase() {
             val factory = SupportOpenHelperFactory(DatabaseKeyManager(context).passphrase())
             return Room.databaseBuilder(context.applicationContext, VaultDatabase::class.java, DB_NAME)
                 .openHelperFactory(factory)
+                .addMigrations(MIGRATION_1_2)
                 .build()
         }
 

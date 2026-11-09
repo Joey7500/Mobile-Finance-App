@@ -92,6 +92,11 @@ data class Account(
      * transfers between your own accounts. Stored only in the encrypted DB.
      */
     val ownIdentifiers: List<String> = emptyList(),
+    /**
+     * Last digits of payment cards linked to this account ("3953"). A card
+     * payment notification mentioning them is booked to this account.
+     */
+    val cardIdentifiers: List<String> = emptyList(),
 )
 
 /** A user-maintained asset with a manually entered value (building savings, cash at home, ...). */
