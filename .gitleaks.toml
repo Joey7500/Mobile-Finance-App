@@ -35,7 +35,7 @@ tags = ["key", "auth"]
 [[rules]]
 id = "signing-password"
 description = "Keystore / signing password in a properties or gradle file"
-regex = '''(?i)(?:store|key)_?password\s*[:=]\s*["']?[^\s"'$]{6,}'''
+regex = '''(?i)(?:store|key)_?password\s*[:=]\s*["']?[^\s"'$(){}]{6,}(?:["']|\s|$)'''
 tags = ["key", "signing"]
 
 [allowlist]
