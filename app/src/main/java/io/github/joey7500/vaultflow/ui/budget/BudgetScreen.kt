@@ -16,8 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -86,9 +86,9 @@ fun BudgetScreen() {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Budget", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                    IconButton(onClick = vm::previousMonth) { Icon(Icons.Filled.KeyboardArrowLeft, "Previous month") }
+                    IconButton(onClick = vm::previousMonth) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous month") }
                     Text(state.month.format(monthFmt).replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.titleSmall)
-                    IconButton(onClick = vm::nextMonth) { Icon(Icons.Filled.KeyboardArrowRight, "Next month") }
+                    IconButton(onClick = vm::nextMonth) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next month") }
                 }
             }
 
