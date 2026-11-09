@@ -2,12 +2,20 @@ package io.github.joey7500.vaultflow
 
 import android.app.Application
 import io.github.joey7500.vaultflow.di.AppContainer
+import io.github.joey7500.vaultflow.ui.lock.LockState
 
 class VaultFlowApp : Application() {
 
-    @Volatile
-    var container: AppContainer = AppContainer(this)
+    val lock = LockState()
+
+    /** Created in onCreate(): the Context is not usable during field initialisation. */
+    lateinit var container: AppContainer
         private set
+
+    override fun onCreate() {
+        super.onCreate()
+        container = AppContainer(this)
+    }
 
     /** Switching Demo Mode rebuilds the object graph against the other database. */
     @Synchronized

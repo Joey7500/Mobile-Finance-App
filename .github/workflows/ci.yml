@@ -67,6 +67,11 @@ jobs:
             app/build/reports/tests/
           if-no-files-found: ignore
 
+      - name: Print Room schema (for review)
+        if: always()
+        shell: bash
+        run: find app/schemas -name '*.json' -print -exec cat {} \; 2>/dev/null || true
+
       - name: Upload Room schema
         if: always()
         uses: actions/upload-artifact@v4
