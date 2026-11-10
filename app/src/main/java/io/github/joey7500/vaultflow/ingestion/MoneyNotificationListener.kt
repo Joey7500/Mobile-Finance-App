@@ -5,6 +5,9 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import io.github.joey7500.vaultflow.VaultFlowApp
 import io.github.joey7500.vaultflow.domain.ingest.AmountParser
+import io.github.joey7500.vaultflow.domain.ingest.Channel
+import io.github.joey7500.vaultflow.domain.ingest.IncomingMessage
+import io.github.joey7500.vaultflow.email.EmailSyncWorker
 import kotlinx.coroutines.launch
 
 /**
@@ -39,7 +42,11 @@ class MoneyNotificationListener : NotificationListenerService() {
         container.scope.launch {
             runCatching {
                 container.initialize()
-                container.finance.ingestNotification(sbn.packageName, key, postedAt, title, text)
+                val handled = container.finance.ingestMessage(
+                    IncomingMessage(Channel.NOTIFICATION, sbn.packageName, key, postedAt, title, text),
+                )
+                // The bank e-mail follows ~6 min later: check the inbox soon to confirm it.
+                if (handled) EmailSyncWorker.scheduleSoon(applicationContext)
             }
         }
     }

@@ -35,6 +35,8 @@ class SecretVault(context: Context) {
     companion object {
         const val T212_API_KEY = "t212_api_key"
         const val T212_API_SECRET = "t212_api_secret"
+        const val GMAIL_ADDRESS = "gmail_address"
+        const val GMAIL_APP_PASSWORD = "gmail_app_password"
         private const val PREFS = "vault_secrets"
         private const val KEY_ALIAS = "vaultflow_secret_vault_key"
     }

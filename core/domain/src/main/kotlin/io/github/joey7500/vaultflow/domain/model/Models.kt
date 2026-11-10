@@ -117,6 +117,9 @@ data class Account(
     val transferAliases: List<String> = emptyList(),
     /** Overdraft (kontokorent) included in the bank's "available" figure. */
     val overdraftMinor: Long = 0,
+    /** When the bank last reported this account's balance, and how far the app was off. */
+    val lastCheckAtMillis: Long? = null,
+    val lastCheckDiffMinor: Long? = null,
 )
 
 /** A user-maintained asset with a manually entered value (building savings, cash at home, ...). */

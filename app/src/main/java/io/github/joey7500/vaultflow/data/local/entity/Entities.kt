@@ -41,6 +41,9 @@ data class TransactionEntity(
     val note: String,
     val sourcePackage: String?,
     val fingerprint: String?,
+    /** Comma-separated sources that reported this transaction (DB v3). */
+    @ColumnInfo(defaultValue = "''")
+    val evidence: String = "",
 )
 
 @Serializable
@@ -58,6 +61,16 @@ data class AccountEntity(
     /** Newline-separated last digits of cards linked to this account (added in DB v2). */
     @ColumnInfo(defaultValue = "''")
     val cardIdentifiers: String = "",
+    /** Newline-separated merchant names meaning "money goes to this account" (DB v3). */
+    @ColumnInfo(defaultValue = "''")
+    val transferAliases: String = "",
+    /** Overdraft included in the bank's "available" figure, learned from e-mails (DB v3). */
+    @ColumnInfo(defaultValue = "0")
+    val overdraftMinor: Long = 0,
+    /** Last time the bank reported a balance, and how far the app was off (DB v3). */
+    val lastCheckAtMillis: Long? = null,
+    val lastCheckDiffMinor: Long? = null,
+    val lastReportedMinor: Long? = null,
 )
 
 @Serializable
@@ -124,6 +137,16 @@ data class CaptureLogEntity(
 data class SettingEntity(
     @PrimaryKey val key: String,
     val value: String,
+)
+
+/** Notifications / e-mails already looked at, so polling never processes one twice (DB v3). */
+@Serializable
+@Entity(tableName = "processed_messages")
+data class ProcessedMessageEntity(
+    @PrimaryKey val key: String,
+    val processedAtMillis: Long,
+    /** False when the sender was not enabled yet: re-processed once you enable it. */
+    val handled: Boolean,
 )
 
 /** Result row for per-account balance deltas. */

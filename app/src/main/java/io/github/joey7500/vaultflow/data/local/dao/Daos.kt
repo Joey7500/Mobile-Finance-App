@@ -11,6 +11,7 @@ import io.github.joey7500.vaultflow.data.local.entity.AccountEntity
 import io.github.joey7500.vaultflow.data.local.entity.CaptureLogEntity
 import io.github.joey7500.vaultflow.data.local.entity.CategoryEntity
 import io.github.joey7500.vaultflow.data.local.entity.ManualAssetEntity
+import io.github.joey7500.vaultflow.data.local.entity.ProcessedMessageEntity
 import io.github.joey7500.vaultflow.data.local.entity.RuleEntity
 import io.github.joey7500.vaultflow.data.local.entity.SenderEntity
 import io.github.joey7500.vaultflow.data.local.entity.SettingEntity
@@ -87,6 +88,24 @@ interface TransactionDao {
 
     @Query("DELETE FROM transactions")
     suspend fun deleteAll()
+
+    @Query("SELECT COALESCE(SUM(amountCzkMinor), 0) FROM transactions WHERE accountId = :accountId AND timestampMillis > :after AND timestampMillis <= :upTo")
+    suspend fun sumForAccount(accountId: Long, after: Long, upTo: Long): Long
+
+    @Query("SELECT COUNT(*) FROM transactions WHERE timestampMillis >= :from AND timestampMillis < :to AND evidence LIKE '%EMAIL%'")
+    fun observeEmailConfirmed(from: Long, to: Long): Flow<Int>
+}
+
+@Dao
+interface ProcessedMessageDao {
+    @Query("SELECT * FROM processed_messages WHERE `key` = :key")
+    suspend fun get(key: String): ProcessedMessageEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(item: ProcessedMessageEntity)
+
+    @Query("DELETE FROM processed_messages WHERE processedAtMillis < :before")
+    suspend fun purgeBefore(before: Long)
 }
 
 @Dao

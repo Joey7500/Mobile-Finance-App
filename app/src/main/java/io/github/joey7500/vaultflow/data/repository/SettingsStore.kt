@@ -53,5 +53,7 @@ class SettingsStore(private val dao: SettingDao) {
         const val FX_FETCHED_AT = "fx_fetched_at"
         const val LAST_REFRESH_AT = "last_refresh_at"
         const val CAPTURE_LOG_ENABLED = "capture_log_enabled"
+        const val EMAIL_LAST_SYNC_AT = "email_last_sync_at"
+        const val EMAIL_LAST_RESULT = "email_last_result"
     }
 }

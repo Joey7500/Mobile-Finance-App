@@ -15,6 +15,8 @@ import io.github.joey7500.vaultflow.domain.model.AccountType
 import io.github.joey7500.vaultflow.domain.model.Category
 import io.github.joey7500.vaultflow.domain.model.ClassificationRule
 import io.github.joey7500.vaultflow.domain.model.FlowKind
+import io.github.joey7500.vaultflow.email.EmailSyncWorker
+import io.github.joey7500.vaultflow.email.ImapMailFetcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -92,13 +94,62 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         say(result.getOrElse { it.message ?: "Connection failed" })
     }
 
+    // ── Gmail (bank e-mails) ──
+    val hasGmail = MutableStateFlow(c.emailSync.isConfigured)
+    val gmailAddress = MutableStateFlow(c.vault.get(SecretVault.GMAIL_ADDRESS).orEmpty())
+    val emailStatus: StateFlow<String> = c.settings.all
+        .map { s ->
+            val at = s[SettingsStore.EMAIL_LAST_SYNC_AT]?.toLongOrNull()
+            val res = s[SettingsStore.EMAIL_LAST_RESULT].orEmpty()
+            if (at == null) res.ifBlank { "Never synced" } else "Last check ${io.github.joey7500.vaultflow.ui.components.formatDateTime(at)} · $res"
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+
+    fun saveGmail(context: android.content.Context, address: String, appPassword: String) {
+        c.vault.put(SecretVault.GMAIL_ADDRESS, address.trim().lowercase())
+        if (appPassword.isNotBlank()) c.vault.put(SecretVault.GMAIL_APP_PASSWORD, appPassword.replace(" ", ""))
+        hasGmail.value = c.emailSync.isConfigured
+        gmailAddress.value = address.trim().lowercase()
+        if (hasGmail.value) EmailSyncWorker.schedulePeriodic(context)
+        say("Gmail saved to the encrypted vault")
+    }
+
+    fun clearGmail(context: android.content.Context) {
+        c.vault.put(SecretVault.GMAIL_ADDRESS, null)
+        c.vault.put(SecretVault.GMAIL_APP_PASSWORD, null)
+        hasGmail.value = false
+        gmailAddress.value = ""
+        EmailSyncWorker.cancelAll(context)
+        say("Gmail access removed")
+    }
+
+    fun testGmail(address: String, appPassword: String) = viewModelScope.launch {
+        val a = address.ifBlank { c.vault.get(SecretVault.GMAIL_ADDRESS).orEmpty() }
+        val p = appPassword.ifBlank { c.vault.get(SecretVault.GMAIL_APP_PASSWORD).orEmpty() }
+        if (a.isBlank() || p.isBlank()) {
+            say("Enter the Gmail address and App Password first")
+            return@launch
+        }
+        busy.value = true
+        val r = runCatching { withContext(Dispatchers.IO) { ImapMailFetcher.test(a, p) } }
+        busy.value = false
+        say(r.fold({ "Connected ✓ · $it e-mails in the last 3 days" }, { it.message ?: "Connection failed" }))
+    }
+
+    fun syncEmailNow() = viewModelScope.launch {
+        busy.value = true
+        val r = c.emailSync.run()
+        busy.value = false
+        say(r.error?.let { "E-mail check failed: $it" } ?: "Checked ${r.checked} e-mails · ${r.processed} new bank messages")
+    }
+
     // ── Reserve & accounts ──
     fun setFloor(minor: Long) = viewModelScope.launch {
         c.finance.setReserveFloor(minor)
         say("Reserve floor updated")
     }
 
-    fun saveAccount(existing: Account?, name: String, type: AccountType, balanceMinor: Long, liquid: Boolean, ownIds: String, cardIds: String) =
+    fun saveAccount(existing: Account?, name: String, type: AccountType, balanceMinor: Long, liquid: Boolean, ownIds: String, cardIds: String, aliases: String, overdraftMinor: Long) =
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             val prev = existing?.let { e -> c.finance.accountEntities().firstOrNull { it.id == e.id } }
@@ -113,6 +164,11 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
                     isLiquid = liquid,
                     ownIdentifiers = ownIds.trim(),
                     cardIdentifiers = cardIds.lines().map { l -> l.filter(Char::isDigit) }.filter { it.length >= 4 }.joinToString("\n"),
+                    transferAliases = aliases.lines().map { it.trim() }.filter { it.length >= 3 }.joinToString("\n"),
+                    overdraftMinor = overdraftMinor,
+                    lastCheckAtMillis = prev?.lastCheckAtMillis,
+                    lastCheckDiffMinor = prev?.lastCheckDiffMinor,
+                    lastReportedMinor = prev?.lastReportedMinor,
                     sortOrder = prev?.sortOrder ?: state.value.accounts.size,
                 ),
             )

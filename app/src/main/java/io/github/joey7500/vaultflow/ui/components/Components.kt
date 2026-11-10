@@ -219,3 +219,30 @@ fun LabeledRow(label: String, value: String, valueColor: Color = VaultColors.Tex
         Text(value, style = MaterialTheme.typography.bodyMedium, color = valueColor)
     }
 }
+
+/** "Bank check 10 Nov 17:00 ✓" or "⚠ off by 10 Kč" under an account. */
+@Composable
+fun BalanceCheckLine(account: io.github.joey7500.vaultflow.domain.model.Account) {
+    val at = account.lastCheckAtMillis ?: return
+    val diff = account.lastCheckDiffMinor ?: 0L
+    val ok = kotlin.math.abs(diff) < 100 // within 1 Kč
+    Text(
+        if (ok) "Bank balance check ${formatDateTime(at)} ✓ matches"
+        else "Bank check ${formatDateTime(at)} ⚠ app was off by ${money(diff, decimals = true)}, corrected (a payment may be missing)",
+        style = MaterialTheme.typography.bodySmall,
+        color = if (ok) VaultColors.Emerald else VaultColors.Amber,
+    )
+}
+
+/** Short label of which sources reported a transaction: "Wallet · App · E-mail". */
+fun evidenceLabel(evidence: Set<io.github.joey7500.vaultflow.domain.model.TransactionSource>): String =
+    evidence.mapNotNull {
+        when (it) {
+            io.github.joey7500.vaultflow.domain.model.TransactionSource.GOOGLE_WALLET -> "Wallet"
+            io.github.joey7500.vaultflow.domain.model.TransactionSource.BANK_NOTIFICATION -> "App"
+            io.github.joey7500.vaultflow.domain.model.TransactionSource.EMAIL -> "E-mail ✓"
+            io.github.joey7500.vaultflow.domain.model.TransactionSource.INFERRED -> "expected"
+            io.github.joey7500.vaultflow.domain.model.TransactionSource.MANUAL -> "manual"
+            else -> null
+        }
+    }.joinToString(" · ")

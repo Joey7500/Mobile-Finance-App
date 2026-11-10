@@ -13,8 +13,10 @@ import io.github.joey7500.vaultflow.data.local.toEntity
 import io.github.joey7500.vaultflow.data.remote.CnbClient
 import io.github.joey7500.vaultflow.domain.budget.ReserveCalculator
 import io.github.joey7500.vaultflow.domain.classify.Classifier
+import io.github.joey7500.vaultflow.data.local.entity.ProcessedMessageEntity
+import io.github.joey7500.vaultflow.domain.ingest.BalanceObservation
+import io.github.joey7500.vaultflow.domain.ingest.IncomingMessage
 import io.github.joey7500.vaultflow.domain.ingest.IngestContext
-import io.github.joey7500.vaultflow.domain.ingest.IngestDecision
 import io.github.joey7500.vaultflow.domain.ingest.IngestionPipeline
 import io.github.joey7500.vaultflow.domain.ingest.NotificationParser
 import io.github.joey7500.vaultflow.domain.model.Account
@@ -177,50 +179,107 @@ class FinanceRepository(
      * money amount. Apps you have not enabled are only counted (package name),
      * their content is not stored.
      */
-    suspend fun ingestNotification(packageName: String, key: String, postedAt: Long, title: String?, text: String?) =
-        ingestMutex.withLock {
-            val now = System.currentTimeMillis()
-            val existing = db.senders().get(packageName)
-            val sender = (existing ?: SenderEntity(packageName, enabled = false, accountId = null, seenCount = 0, lastSeenMillis = 0))
-                .let { it.copy(seenCount = it.seenCount + 1, lastSeenMillis = now) }
-            db.senders().upsert(sender)
-            if (!sender.enabled) return@withLock
+    /**
+     * Single entry point for notifications AND e-mails. Senders you have not
+     * enabled are only counted (package name / address), their content is not
+     * stored. Returns true when the message was actually processed.
+     */
+    suspend fun ingestMessage(msg: IncomingMessage): Boolean = ingestMutex.withLock {
+        val now = System.currentTimeMillis()
+        val existing = db.senders().get(msg.sourceKey)
+        val sender = (existing ?: SenderEntity(msg.sourceKey, enabled = defaultEnabled(msg.sourceKey), accountId = null, seenCount = 0, lastSeenMillis = 0))
+            .let { it.copy(seenCount = it.seenCount + 1, lastSeenMillis = now) }
+        db.senders().upsert(sender)
+        if (!sender.enabled) return@withLock false
 
-            val fx = settings.cachedFx() ?: runCatching { CnbClient.dailyRates() }.getOrNull()?.also { settings.saveFx(it, now) }
-            val categoryIds = db.categories().getAll().filter { it.key != null }.associate { it.key!! to it.id }
-            val accounts = db.accounts().getAll().map { it.toDomain() }
-            val cardDigits = accounts.flatMap { it.cardIdentifiers }.toSet()
-            val ownIds = accounts.flatMap { it.ownIdentifiers }
-                .filter { id -> id.filter(Char::isDigit) !in cardDigits }
-            val cardAccounts = accounts.flatMap { a -> a.cardIdentifiers.map { it to a.id } }.toMap()
-            val ctx = IngestContext(
-                accountId = sender.accountId,
-                rules = db.rules().getAll().map { it.toDomain() },
-                ownAccountIdentifiers = ownIds,
-                categoryIdByKey = categoryIds,
-                recentTransactions = db.transactions().getSince(postedAt - 30 * 60 * 1000L).map { it.toDomain() },
-                fx = fx,
-                cardAccounts = cardAccounts,
-            )
+        val fx = settings.cachedFx() ?: runCatching { CnbClient.dailyRates() }.getOrNull()?.also { settings.saveFx(it, now) }
+        val categoryIds = db.categories().getAll().filter { it.key != null }.associate { it.key!! to it.id }
+        val ctx = IngestContext(
+            defaultAccountId = sender.accountId,
+            rules = db.rules().getAll().map { it.toDomain() },
+            accounts = db.accounts().getAll().map { it.toDomain() },
+            categoryIdByKey = categoryIds,
+            // 4 days back: covers e-mail delays and interbank transfer counterparts.
+            recentTransactions = db.transactions().getSince(msg.receivedAtMillis - 4L * 24 * 3600 * 1000).map { it.toDomain() },
+            fx = fx,
+        )
 
-            val (outcome, txId) = when (val d = IngestionPipeline.process(packageName, key, postedAt, title, text, ctx)) {
-                is IngestDecision.Insert -> "added" to db.transactions().insert(d.transaction.toEntity())
-                is IngestDecision.Merge -> {
-                    db.transactions().update(d.merged.toEntity())
-                    "merged with an earlier report" to d.existing.id
-                }
-                is IngestDecision.Skip -> "skipped: ${d.reason}" to null
+        val result = IngestionPipeline.process(msg, ctx)
+        var firstId: Long? = null
+        db.withTransaction {
+            result.updates.forEach {
+                db.transactions().update(it.toEntity())
+                if (firstId == null) firstId = it.id
             }
-
-            if (settings.get(SettingsStore.CAPTURE_LOG_ENABLED) != "false") {
-                db.captureLog().insert(
-                    CaptureLogEntity(postedAtMillis = postedAt, packageName = packageName, title = title.orEmpty().take(120), text = text.orEmpty().take(400), outcome = outcome, transactionId = txId),
-                )
+            result.inserts.forEach {
+                val id = db.transactions().insert(it.toEntity())
+                if (firstId == null) firstId = id
             }
-            db.captureLog().purgeBefore(now - CAPTURE_LOG_RETENTION_MS)
+            result.balance?.let { applyBalance(it) }
         }
+
+        if (settings.get(SettingsStore.CAPTURE_LOG_ENABLED) != "false") {
+            db.captureLog().insert(
+                CaptureLogEntity(
+                    postedAtMillis = msg.receivedAtMillis, packageName = msg.sourceKey,
+                    title = msg.title.orEmpty().take(120), text = msg.text.orEmpty().take(400),
+                    outcome = result.outcome, transactionId = firstId,
+                ),
+            )
+        }
+        db.captureLog().purgeBefore(now - CAPTURE_LOG_RETENTION_MS)
+        true
+    }
+
+    /**
+     * The bank told us the real balance: compare with what the app computed
+     * (a difference means a missed or wrong transaction) and re-anchor so the
+     * shown balance is exact from now on.
+     */
+    private suspend fun applyBalance(obs: BalanceObservation) {
+        val acc = db.accounts().getAll().firstOrNull { it.id == obs.accountId } ?: return
+        if (obs.asOfMillis <= acc.anchorDateMillis) return // older than what we already know
+        val computed = acc.anchorBalanceMinor + db.transactions().sumForAccount(acc.id, acc.anchorDateMillis, obs.asOfMillis)
+        db.accounts().upsert(
+            acc.copy(
+                anchorBalanceMinor = obs.ownFundsMinor,
+                anchorDateMillis = obs.asOfMillis,
+                overdraftMinor = obs.overdraftMinor ?: acc.overdraftMinor,
+                lastCheckAtMillis = obs.asOfMillis,
+                lastCheckDiffMinor = obs.ownFundsMinor - computed,
+                lastReportedMinor = obs.ownFundsMinor,
+            ),
+        )
+    }
+
+    /** Google Wallet and known Czech bank e-mail domains start enabled. */
+    private fun defaultEnabled(sourceKey: String): Boolean {
+        if (sourceKey == NotificationParser.GOOGLE_WALLET_PACKAGE) return true
+        if (!sourceKey.startsWith("mail:")) return false
+        val domain = sourceKey.substringAfter('@').lowercase()
+        return KNOWN_BANK_MAIL_DOMAINS.any { domain == it || domain.endsWith(".$it") }
+    }
+
+    suspend fun processedMessage(key: String) = db.processedMessages().get(key)
+
+    suspend fun isSenderEnabled(key: String): Boolean = db.senders().get(key)?.enabled ?: defaultEnabled(key)
+
+    suspend fun markProcessed(key: String, handled: Boolean) {
+        db.processedMessages().put(ProcessedMessageEntity(key, System.currentTimeMillis(), handled))
+    }
+
+    suspend fun purgeProcessed() = db.processedMessages().purgeBefore(System.currentTimeMillis() - 45L * 24 * 3600 * 1000)
+
+    fun emailConfirmedCount(month: YearMonth): Flow<Int> {
+        val (from, to) = monthRange(month)
+        return db.transactions().observeEmailConfirmed(from, to)
+    }
 
     companion object {
         const val CAPTURE_LOG_RETENTION_MS = 7L * 24 * 3600 * 1000
+        val KNOWN_BANK_MAIL_DOMAINS = listOf(
+            "csas.cz", "kb.cz", "csob.cz", "fio.cz", "airbank.cz", "moneta.cz", "rb.cz", "unicreditgroup.cz",
+            "mbank.cz", "equabank.cz", "creditas.cz", "partners.cz", "revolut.com",
+        )
     }
 }

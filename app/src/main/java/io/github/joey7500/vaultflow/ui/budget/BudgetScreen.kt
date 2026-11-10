@@ -56,6 +56,7 @@ import io.github.joey7500.vaultflow.ui.components.MoneyField
 import io.github.joey7500.vaultflow.ui.components.Pill
 import io.github.joey7500.vaultflow.ui.components.SectionLabel
 import io.github.joey7500.vaultflow.ui.components.StatTile
+import io.github.joey7500.vaultflow.ui.components.evidenceLabel
 import io.github.joey7500.vaultflow.ui.components.formatDateTime
 import io.github.joey7500.vaultflow.ui.components.minorToInput
 import io.github.joey7500.vaultflow.ui.components.money
@@ -103,6 +104,10 @@ fun BudgetScreen() {
                     }
                     Spacer(Modifier.height(6.dp))
                     LabeledRow("Net cash flow this month", money(s.netCashFlowMinor), moneyColor(s.netCashFlowMinor))
+                    val confirmed = state.transactions.count { it.evidence.contains(io.github.joey7500.vaultflow.domain.model.TransactionSource.EMAIL) }
+                    if (confirmed > 0) {
+                        LabeledRow("Confirmed by bank e-mail", "$confirmed of ${state.transactions.size}")
+                    }
                 }
             }
 
@@ -236,7 +241,8 @@ private fun TransactionRow(tx: Transaction, categoryName: String, onClick: () ->
         Column(Modifier.weight(1f)) {
             Text(tx.merchant, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                formatDateTime(tx.timestampMillis) + " · " + categoryName + if (tx.status == TransactionStatus.PENDING) " · pending" else "",
+                formatDateTime(tx.timestampMillis) + " · " + categoryName + (if (tx.status == TransactionStatus.PENDING) " · pending" else "") +
+                    evidenceLabel(tx.evidence).let { if (it.isBlank()) "" else " · $it" },
                 style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted, maxLines = 1,
             )
         }

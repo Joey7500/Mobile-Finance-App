@@ -42,6 +42,7 @@ import io.github.joey7500.vaultflow.domain.model.Account
 import io.github.joey7500.vaultflow.domain.model.ManualAsset
 import io.github.joey7500.vaultflow.domain.model.ManualAssetKind
 import io.github.joey7500.vaultflow.ui.LocalSnackbar
+import io.github.joey7500.vaultflow.ui.components.BalanceCheckLine
 import io.github.joey7500.vaultflow.ui.components.DonutChart
 import io.github.joey7500.vaultflow.ui.components.Dot
 import io.github.joey7500.vaultflow.ui.components.GlassCard
@@ -144,6 +145,7 @@ fun WealthScreen() {
                         Text(pair.first.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(money(pair.second), style = MaterialTheme.typography.bodyMedium, color = moneyColor(pair.second))
                     }
+                    BalanceCheckLine(pair.first)
                 }
                 if (s.accounts.isNotEmpty()) Text("Tap an account to correct its balance.", style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
             }
