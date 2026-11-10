@@ -9,6 +9,7 @@ on your phone or in a git-ignored file on your PC.
 | Secret / personal data | Where it lives | Can it reach GitHub? |
 |---|---|---|
 | Trading 212 API key + secret | Typed into the app → encrypted with the phone's hardware **Android Keystore** | No: not in code, Gradle, BuildConfig, logs or backups |
+| Gmail address + App Password | Same Keystore vault; IMAP read-only. Revoke at myaccount.google.com/apppasswords | No |
 | Transactions, balances, budgets, rules, own account digits | **SQLCipher** AES-256 database on the phone; its key is wrapped by the Keystore | No |
 | Raw notification text (capture log) | Same encrypted DB, auto-deleted after 7 days, can be switched off | No |
 | Release signing key `*.jks` | Your PC, **outside** the repo folder + password manager backup | No: `.gitignore` + pre-commit hook block `*.jks` |

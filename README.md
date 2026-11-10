@@ -25,6 +25,8 @@ nothing is sent to a cloud service.
 - Czech + English formats (`1 234,50 Kč`, `CZK 1,234.50`, `€12.50`), in/out detection
 - Ignores OTP codes, 3-D Secure prompts, declined payments and promos
 - Merges the Wallet and bank reports of one payment; foreign currency is converted with ČNB rates
+- **Bank e-mails via Gmail** (read-only IMAP): every payment confirmed, balances checked
+- **Fusion**: Wallet + bank app + e-mail reports merge into one transaction; own-account transfers are booked on both sides
 - Capture log so you can see exactly what happened to each notification
 
 **Wealth tab**
@@ -59,6 +61,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install-hooks.ps1   # secret gu
 | Doc | What's inside |
 |---|---|
 | [docs/SETUP.md](docs/SETUP.md) | Step-by-step: PC setup, phone setup, first run, signed release build |
+| [docs/EMAIL.md](docs/EMAIL.md) | Connecting bank e-mails (Gmail) to confirm payments and balances |
 | [docs/SECURITY.md](docs/SECURITY.md) | Where every secret lives, leak protection layers, GitHub signing secrets |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modules, data flow, design decisions |
 | [docs/PLAN_REVIEW.md](docs/PLAN_REVIEW.md) | Weaknesses found in the original plan and how they were fixed |

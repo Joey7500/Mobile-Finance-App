@@ -117,7 +117,10 @@ into the code, Gradle files or GitHub.
    6. Your bank apps show up under **"Apps that sent money notifications"**
       after their first payment notification. Switch each one **ON** and pick
       the account it belongs to. Google Wallet is on by default.
-10. **Back up**: Settings → Backup → **Export**. Choose a strong password
+10. **Bank e-mails (recommended):** follow [EMAIL.md](EMAIL.md) to connect a
+    dedicated Gmail. Every payment then gets confirmed by the bank and balances
+    are checked automatically.
+11. **Back up**: Settings → Backup → **Export**. Choose a strong password
     (store it in your password manager) and save the file, e.g. to Google Drive.
     The file is AES-256 encrypted.
 
