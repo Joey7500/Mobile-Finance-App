@@ -48,10 +48,10 @@ object Deduplicator {
         }
         if (abs(candidate.timestampMillis - existing.timestampMillis) > window) return false
 
-        // Same source twice = two real transactions (unless it is a mirror merging into a mirror).
-        if (!(candidate.source == INFERRED && existing.source == INFERRED)) {
-            if (candidate.source in existing.evidence && candidate.source != INFERRED) return false
-        }
+        // Same source twice = two real transactions. This also applies to expected transfer
+        // counterparts: two identical top-ups are two counterparts (the SAME counterpart
+        // re-created by a later report is caught by its fingerprint above).
+        if (candidate.source in existing.evidence) return false
         val sameChannel = candidate.sourcePackage != null && candidate.sourcePackage == existing.sourcePackage
         if (sameChannel && !inferred) return false
 

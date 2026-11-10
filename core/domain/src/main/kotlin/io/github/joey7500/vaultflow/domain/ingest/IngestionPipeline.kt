@@ -190,7 +190,7 @@ object IngestionPipeline {
                 confidence = 1.0,
                 note = "expected counterpart of a transfer",
                 sourcePackage = null,
-                fingerprint = "$fingerprint:mirror",
+                fingerprint = "${main.fingerprint ?: fingerprint}:mirror",
             )
             val others = ctx.recentTransactions.filter { it.id != main.id || main.id == 0L }
             val otherSide = Deduplicator.findDuplicate(mirror, others)
@@ -222,8 +222,12 @@ object IngestionPipeline {
 
     /** Card digits > account number in the message > account mapped to the sender. */
     fun resolveSourceAccount(bank: BankMessage, ctx: IngestContext): Account? {
-        bank.cardDigits.forEach { digits ->
-            ctx.accounts.firstOrNull { a -> a.cardIdentifiers.any { it == digits } }?.let { return it }
+        val mapped = ctx.defaultAccountId?.let { id -> ctx.accounts.firstOrNull { it.id == id } }
+        cardAccount(bank, ctx)?.let { card ->
+            // Outgoing card payment: the card's account paid. Incoming money that names a card of
+            // ANOTHER account ("Revolut top-up from card ••1111") lands on the app's own account.
+            val incoming = (bank.transaction?.amountMinor ?: -1L) > 0
+            return if (incoming && mapped != null && mapped.id != card.id) mapped else card
         }
         val preferredRole = when {
             bank.transaction == null -> AccountRole.MENTION
@@ -237,8 +241,13 @@ object IngestionPipeline {
         return own.firstOrNull()?.second
     }
 
-    /** The OTHER own account involved: by account number, or by a merchant alias ("REVOLUT"). */
+    private fun cardAccount(bank: BankMessage, ctx: IngestContext): Account? =
+        bank.cardDigits.firstNotNullOfOrNull { digits -> ctx.accounts.firstOrNull { a -> a.cardIdentifiers.any { it == digits } } }
+
+    /** The OTHER own account involved: account number, your own card, or a merchant alias ("REVOLUT"). */
     fun resolveCounterparty(bank: BankMessage, merchant: String, direction: Direction, source: Account?, ctx: IngestContext): Account? {
+        // Your own card from another account paid for this (top-up) -> that account is the other side.
+        cardAccount(bank, ctx)?.takeIf { it.id != source?.id }?.let { return it }
         val otherRole = if (direction == Direction.OUT) AccountRole.TO else AccountRole.FROM
         bank.accounts
             .filter { it.role == otherRole }

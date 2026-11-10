@@ -221,4 +221,41 @@ Na účet: 7654321/9998
         val unknown = IngestionPipeline.process(notif(george, 1, "VUT PRODEJNA 1", "72,90 CZK paid by card 3333."), ctx(default = 2))
         assertEquals(2L, unknown.inserts.single().accountId)
     }
+
+    private fun Db.balanceDelta(accountId: Long) = rows.filter { it.accountId == accountId }.sumOf { it.amountCzkMinor }
+
+    @Test fun `two identical Revolut top-ups on the same day both reach Revolut`() {
+        val db = Db()
+        db.apply(IngestionPipeline.process(notif(george, at(17, 0), "\uD83D\uDCB3 Revolut**5472*", "300,00 Kč platba kartou 1111."), ctx()))
+        db.apply(IngestionPipeline.process(notif(george, at(23, 8), "\uD83D\uDCB3 Revolut**5472*", "300,00 Kč platba kartou 1111."), ctx(db.rows)))
+        assertEquals(-60_000L, db.balanceDelta(1))
+        assertEquals(60_000L, db.balanceDelta(3))
+    }
+
+    @Test fun `george notification then ČS e-mail for a Revolut top-up keep exactly one counterpart`() {
+        val db = Db()
+        db.apply(IngestionPipeline.process(notif(george, at(23, 8), "\uD83D\uDCB3 Revolut**5472*", "300,00 Kč platba kartou 1111."), ctx()))
+        db.apply(IngestionPipeline.process(mail(csMail, at(23, 14), "karta", cardMail("300,00", "Revolut**5472*")), ctx(db.rows)))
+        assertEquals(2, db.rows.size)
+        assertEquals(-30_000L, db.balanceDelta(1))
+        assertEquals(30_000L, db.balanceDelta(3))
+    }
+
+    @Test fun `revolut notification naming the ČS card is booked on Revolut, not on ČS`() {
+        val db = Db()
+        db.apply(IngestionPipeline.process(notif(george, at(23, 8), "\uD83D\uDCB3 Revolut**5472*", "300,00 Kč platba kartou 1111."), ctx()))
+        db.apply(IngestionPipeline.process(notif("com.revolut.revolut", at(23, 8) + 30_000, "Dobití", "Přidali jsme 300 Kč z karty ••1111"), ctx(db.rows, default = 3)))
+        assertEquals(-30_000L, db.balanceDelta(1))
+        assertEquals(30_000L, db.balanceDelta(3))
+        assertEquals(2, db.rows.size)
+    }
+
+    @Test fun `revolut top-up arriving before the ČS report still balances both accounts`() {
+        val db = Db()
+        db.apply(IngestionPipeline.process(notif("com.revolut.revolut", at(23, 8), "Top up", "Top up of 300 CZK by card ••1111"), ctx(default = 3)))
+        db.apply(IngestionPipeline.process(notif(george, at(23, 8) + 20_000, "\uD83D\uDCB3 Revolut**5472*", "300,00 Kč platba kartou 1111."), ctx(db.rows)))
+        assertEquals(-30_000L, db.balanceDelta(1))
+        assertEquals(30_000L, db.balanceDelta(3))
+        assertTrue(db.rows.all { it.categoryId == 9L })
+    }
 }

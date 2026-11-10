@@ -48,7 +48,8 @@ object NotificationParser {
         "obdrzel", "vraceni", "vracen", "refund", "received", "incoming", "credited",
         "deposit", "you got", "sent you", "poslal vam", "poslala vam", "zaslal vam",
         "vyplata", "mzda", "salary",
-        "dobiti", "dobito", "top-up", "topped up", "money added", "added to", "pridano",
+        "dobiti", "dobito", "top-up", "top up", "topped up", "money added", "added", "pridano", "pridali jsme",
+        "doplneni", "doplnen", "pripsali",
     )
 
     private val OUT_WORDS = listOf(

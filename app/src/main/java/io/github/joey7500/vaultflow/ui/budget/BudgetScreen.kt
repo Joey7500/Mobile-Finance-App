@@ -269,6 +269,11 @@ private fun TransactionDialog(
         text = {
             Column {
                 Text(money(tx.amountCzkMinor, true) + " · " + formatDateTime(tx.timestampMillis), color = moneyColor(tx.amountCzkMinor))
+                Text(
+                    "Account: " + (state.accounts.firstOrNull { it.id == tx.accountId }?.name ?: "none") +
+                        evidenceLabel(tx.evidence).let { if (it.isBlank()) "" else " · $it" },
+                    style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+                )
                 if (tx.note.isNotBlank()) Text(tx.note, style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
                 Spacer(Modifier.height(8.dp))
                 CheckRow(learn, { learn = it }, "Always classify this merchant like this")
