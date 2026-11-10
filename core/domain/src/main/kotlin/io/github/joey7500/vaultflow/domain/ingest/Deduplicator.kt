@@ -2,36 +2,66 @@ package io.github.joey7500.vaultflow.domain.ingest
 
 import io.github.joey7500.vaultflow.domain.model.Transaction
 import io.github.joey7500.vaultflow.domain.model.TransactionSource
+import io.github.joey7500.vaultflow.domain.model.TransactionSource.BANK_NOTIFICATION
+import io.github.joey7500.vaultflow.domain.model.TransactionSource.EMAIL
+import io.github.joey7500.vaultflow.domain.model.TransactionSource.GOOGLE_WALLET
+import io.github.joey7500.vaultflow.domain.model.TransactionSource.INFERRED
+import io.github.joey7500.vaultflow.domain.model.TransactionSource.MANUAL
 import io.github.joey7500.vaultflow.domain.model.TransactionStatus
 import io.github.joey7500.vaultflow.domain.text.TextNormalizer
 import kotlin.math.abs
 
 /**
- * Detects the same purchase reported twice, typically once by Google Wallet
- * and seconds later by the bank app.
+ * Fuses reports of the SAME payment coming from different sources:
+ * Google Wallet (instant), the bank app (instant) and the bank e-mail
+ * (≈ 6 minutes later, with the settled amount and the balance).
  *
- * Unlike a naive "same amount within N minutes" rule, two notifications from
- * the SAME app are never merged (two 89 Kč coffees are two purchases). Only an
- * identical re-post (same fingerprint) from the same app is dropped.
+ * Rules:
+ * - A record already confirmed by a source never absorbs a second report from
+ *   that same source: two e-mails or two Wallet taps are two purchases
+ *   (e.g. two 89 Kč coffees).
+ * - Time windows depend on the sources: ±10 min between instant sources,
+ *   ±3 h when an e-mail is involved (some e-mails only carry the date),
+ *   ±72 h for the expected counterpart of a transfer (interbank clearing).
+ * - Different accounts never merge.
+ * - Among several candidates the one closest in time wins.
  */
 object Deduplicator {
     const val WINDOW_MS: Long = 10 * 60 * 1000L
+    const val EMAIL_WINDOW_MS: Long = 3 * 60 * 60 * 1000L
+    const val TRANSFER_WINDOW_MS: Long = 72 * 60 * 60 * 1000L
 
     fun findDuplicate(candidate: Transaction, recent: List<Transaction>): Transaction? =
-        recent.firstOrNull { isDuplicate(candidate, it) }
+        recent.filter { isDuplicate(candidate, it) }
+            .minByOrNull { abs(it.timestampMillis - candidate.timestampMillis) }
 
     fun isDuplicate(candidate: Transaction, existing: Transaction): Boolean {
         if (candidate.fingerprint != null && candidate.fingerprint == existing.fingerprint) return true
-        if (abs(candidate.timestampMillis - existing.timestampMillis) > WINDOW_MS) return false
         if (candidate.amountCzkMinor.sign() != existing.amountCzkMinor.sign()) return false
+        if (candidate.accountId != null && existing.accountId != null && candidate.accountId != existing.accountId) return false
 
+        val inferred = candidate.source == INFERRED || existing.source == INFERRED
+        val window = when {
+            inferred -> TRANSFER_WINDOW_MS
+            candidate.source == EMAIL || existing.source == EMAIL -> EMAIL_WINDOW_MS
+            else -> WINDOW_MS
+        }
+        if (abs(candidate.timestampMillis - existing.timestampMillis) > window) return false
+
+        // Same source twice = two real transactions (unless it is a mirror merging into a mirror).
+        if (!(candidate.source == INFERRED && existing.source == INFERRED)) {
+            if (candidate.source in existing.evidence && candidate.source != INFERRED) return false
+        }
         val sameChannel = candidate.sourcePackage != null && candidate.sourcePackage == existing.sourcePackage
-        if (sameChannel) return false
+        if (sameChannel && !inferred) return false
 
         if (!amountsMatch(candidate, existing)) return false
 
-        // A manual entry only merges when the merchant clearly matches.
-        val strict = existing.source == TransactionSource.MANUAL || candidate.source == TransactionSource.MANUAL
+        if (inferred) {
+            // A transfer counterpart is identified by account + amount; the texts differ by nature.
+            return candidate.accountId != null && candidate.accountId == existing.accountId
+        }
+        val strict = existing.source == MANUAL || candidate.source == MANUAL
         return merchantsCompatible(candidate.merchant, existing.merchant, strict)
     }
 
@@ -54,31 +84,63 @@ object Deduplicator {
         return ka.contains(kb) || kb.contains(ka)
     }
 
+    /** Which source is trusted for the AMOUNT (the bank's settled CZK value wins). */
+    private fun amountRank(s: TransactionSource) = when (s) {
+        EMAIL -> 4
+        BANK_NOTIFICATION -> 3
+        MANUAL -> 2
+        GOOGLE_WALLET -> 1
+        else -> 0
+    }
+
+    /** Which source has the nicest MERCHANT name (Wallet shows the brand). */
+    private fun merchantRank(s: TransactionSource) = when (s) {
+        GOOGLE_WALLET -> 4
+        BANK_NOTIFICATION -> 3
+        MANUAL -> 3
+        EMAIL -> 2
+        else -> 0
+    }
+
     /**
-     * Combines two reports of the same purchase. The bank report wins for the
-     * amount (it is the settled CZK value); the Wallet merchant name is usually
-     * cleaner; a category the user already chose is kept.
+     * Combines two reports of one payment into a single record: the bank's
+     * amount, the best merchant name, the earliest real timestamp, the
+     * category you already chose, and the union of all evidence.
      */
     fun merge(existing: Transaction, incoming: Transaction): Transaction {
-        val bankReport = listOf(existing, incoming).firstOrNull { it.source == TransactionSource.BANK_NOTIFICATION }
-        val walletReport = listOf(existing, incoming).firstOrNull { it.source == TransactionSource.GOOGLE_WALLET }
-        val amountSource = bankReport ?: existing
+        val amountSource = if (amountRank(incoming.source) > amountRank(existing.source)) incoming else existing
+        val merchantSource = listOf(existing, incoming)
+            .filter { it.merchant.isNotBlank() && it.source != INFERRED }
+            .maxByOrNull { merchantRank(it.source) }
+            ?: existing
+        val evidence = existing.evidence + incoming.evidence
+        val timestamp = when {
+            existing.source == INFERRED && incoming.source != INFERRED -> incoming.timestampMillis
+            incoming.source == INFERRED -> existing.timestampMillis
+            else -> minOf(existing.timestampMillis, incoming.timestampMillis)
+        }
+        val primary = if (existing.source == INFERRED && incoming.source != INFERRED) incoming.source else existing.source
+        val userChose = existing.confidence >= 1.0 && existing.categoryId != null
         return existing.copy(
+            timestampMillis = timestamp,
             amountMinor = amountSource.amountMinor,
             currency = amountSource.currency,
             amountCzkMinor = amountSource.amountCzkMinor,
-            merchant = walletReport?.merchant?.takeIf { it.isNotBlank() }
-                ?: existing.merchant.ifBlank { incoming.merchant },
+            merchant = merchantSource.merchant,
             accountId = existing.accountId ?: incoming.accountId,
-            categoryId = existing.categoryId ?: incoming.categoryId,
+            categoryId = if (userChose) existing.categoryId else (existing.categoryId ?: incoming.categoryId),
             confidence = maxOf(existing.confidence, incoming.confidence),
-            status = if (bankReport != null) TransactionStatus.SETTLED else existing.status,
+            source = primary,
+            status = if (EMAIL in evidence || BANK_NOTIFICATION in evidence) TransactionStatus.SETTLED else existing.status,
+            sourcePackage = existing.sourcePackage ?: incoming.sourcePackage,
+            evidence = evidence,
+            note = listOf(existing.note, incoming.note).filter { it.isNotBlank() }.distinct().joinToString(" · ").take(200),
         )
     }
 
     private val GENERIC = setOf(
         "PLATBA", "KARTOU", "KARTA", "CARD", "PAYMENT", "PURCHASE", "TRANSAKCE", "VISA", "MASTERCARD",
-        "GOOGLE", "WALLET", "PAY", "CZK", "EUR", "THE", "AND",
+        "GOOGLE", "WALLET", "PAY", "CZK", "EUR", "THE", "AND", "PAID", "TRANSFER", "PREVOD", "UCET", "UCTU",
     )
 
     private fun tokens(s: String): Set<String> =

@@ -46,7 +46,15 @@ data class Category(
     val isUncertain: Boolean get() = key == CategoryKeys.UNCERTAIN
 }
 
-enum class TransactionSource { MANUAL, GOOGLE_WALLET, BANK_NOTIFICATION, IMPORT, DEMO }
+enum class TransactionSource {
+    MANUAL, GOOGLE_WALLET, BANK_NOTIFICATION, IMPORT, DEMO,
+
+    /** Bank e-mail (arrives ~6 min after the payment; carries the settled amount and the balance). */
+    EMAIL,
+
+    /** Expected counterpart of a transfer between your own accounts, until the other bank confirms it. */
+    INFERRED,
+}
 
 enum class TransactionStatus {
     /** Seen only from a fast but approximate source (e.g. Wallet FX estimate). */
@@ -74,7 +82,12 @@ data class Transaction(
     val sourcePackage: String? = null,
     /** Hash of the raw notification text, used to drop exact re-posts. */
     val fingerprint: String? = null,
-)
+    /** Every source that reported this transaction (Wallet, bank app, e-mail...). */
+    val evidence: Set<TransactionSource> = setOf(source),
+) {
+    val isConfirmedByBank: Boolean
+        get() = TransactionSource.EMAIL in evidence || TransactionSource.BANK_NOTIFICATION in evidence
+}
 
 enum class AccountType { BANK, CASH, SAVINGS }
 
@@ -97,6 +110,13 @@ data class Account(
      * payment notification mentioning them is booked to this account.
      */
     val cardIdentifiers: List<String> = emptyList(),
+    /**
+     * Merchant names that mean "money goes to THIS account", e.g. "REVOLUT" for
+     * a card top-up of your Revolut. Such payments become internal transfers.
+     */
+    val transferAliases: List<String> = emptyList(),
+    /** Overdraft (kontokorent) included in the bank's "available" figure. */
+    val overdraftMinor: Long = 0,
 )
 
 /** A user-maintained asset with a manually entered value (building savings, cash at home, ...). */

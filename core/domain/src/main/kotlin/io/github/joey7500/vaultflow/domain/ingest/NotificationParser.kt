@@ -32,7 +32,9 @@ object NotificationParser {
      */
     private val IGNORE = Regex(
         "\\b(?:" + listOf(
-            "potvrd", "confirm", "approve", "schval", "overen", "verify", "verification",
+            // "Potvrďte platbu" (please confirm) is a request, "potvrzujeme platbu" (we confirm) a receipt.
+            "potvrdte", "potvrdit", "please confirm", "confirm your", "confirm the", "to confirm", "approve",
+            "schvalte", "schvalit", "overte", "overeni", "verify", "verification",
             "kod\\b", "code\\b", "otp\\b", "heslo", "password",
             "zamitnut", "zamitl", "declined", "rejected", "failed", "neprovedena", "nepodarilo", "neuspes",
             "insufficient", "nedostatek",
@@ -41,14 +43,16 @@ object NotificationParser {
     )
 
     private val IN_WORDS = listOf(
-        "prichozi", "prisla", "prislo", "prisel", "prijata", "prijato", "prijem", "pripsan",
+        // Not "prijem": it also matches "příjemce" (recipient) in outgoing payments.
+        "prichozi", "prisla", "prislo", "prisel", "prijata", "prijato", "prijem na", "pripsan",
         "obdrzel", "vraceni", "vracen", "refund", "received", "incoming", "credited",
         "deposit", "you got", "sent you", "poslal vam", "poslala vam", "zaslal vam",
         "vyplata", "mzda", "salary",
+        "dobiti", "dobito", "top-up", "topped up", "money added", "added to", "pridano",
     )
 
     private val OUT_WORDS = listOf(
-        "odchozi", "platba", "zaplac", "vyber", "vydaj", "debet", "odepsan", "strzen",
+        "odchozi", "odesla", "odeslan", "platba", "platbu", "zaplac", "vyber", "vydaj", "debet", "odepsan", "strzen",
         "paid", "payment", "purchase", "spent", "debited", "withdrawal", "you sent",
         "card transaction", "transakce kartou",
     )
@@ -60,7 +64,21 @@ object NotificationParser {
         Regex("""(?i)(?:^|\s)(?:from|od)\s*:?\s+([A-Za-zÀ-ž0-9][^,;\n]{1,40}?)(?:\s+(?:on|dne)\b|[,;\n]|\.(?:\s|$)|$)"""),
     )
 
-    fun parse(packageName: String, title: String?, text: String?): ParsedNotification? {
+    /** Words that show a message is about a money MOVEMENT (not just a balance statement). */
+    private val MOVEMENT_WORDS = listOf(
+        "platb", "odesl", "odchoz", "prichoz", "prisl", "pripsan", "transakc", "kartou", "karta ", "card",
+        "paid", "payment", "prevod", "transfer", "vyber", "debit", "credit", "received", "sent", "zaplac",
+        "nakup", "purchase", "refund", "vracen", "strzen", "dobit", "top-up", "topped", "spent",
+    )
+    private val BALANCE_WORDS = listOf("zustatek", "disponibiln", "k dispozici", "balance", "available")
+
+    fun isIgnored(normalized: String): Boolean = IGNORE.containsMatchIn(normalized)
+
+    /** "Zůstatek na účtu ... je 3 700 Kč": a balance statement without any payment. */
+    fun isBalanceOnly(normalized: String): Boolean =
+        BALANCE_WORDS.any { normalized.contains(it) } && MOVEMENT_WORDS.none { normalized.contains(it) }
+
+    fun parse(packageName: String, title: String?, text: String?, titleMayBeMerchant: Boolean = true): ParsedNotification? {
         val t = title.orEmpty().trim()
         val body = text.orEmpty().trim()
         val full = listOf(t, body).filter { it.isNotEmpty() }.joinToString("\n")
@@ -68,6 +86,7 @@ object NotificationParser {
 
         val normalized = TextNormalizer.lowerAscii(full)
         if (IGNORE.containsMatchIn(normalized)) return null
+        if (isBalanceOnly(normalized)) return null
 
         val amounts = AmountParser.findAll(full)
         val txAmount = amounts.firstOrNull { !it.isBalance } ?: return null
@@ -81,7 +100,7 @@ object NotificationParser {
         return ParsedNotification(
             amountMinor = signed,
             currency = txAmount.currency,
-            merchant = extractMerchant(t, body, isWallet),
+            merchant = extractMerchant(if (titleMayBeMerchant || isWallet) t else "", body, isWallet),
             mentionedBalanceMinor = balance,
             isFromWallet = isWallet,
         )
@@ -93,12 +112,18 @@ object NotificationParser {
         if (isWallet) {
             return if (normalizedText.contains("refund") || normalizedText.contains("vracen")) Direction.IN else Direction.OUT
         }
+        // Explicit direction ("Směr platby: odchozí") beats any other wording.
+        val saysOut = normalizedText.contains("odchozi") || normalizedText.contains("outgoing")
+        val saysIn = normalizedText.contains("prichozi") || normalizedText.contains("incoming")
+        if (saysOut && !saysIn) return Direction.OUT
+        if (saysIn && !saysOut) return Direction.IN
         if (IN_WORDS.any { normalizedText.contains(it) }) return Direction.IN
         if (OUT_WORDS.any { normalizedText.contains(it) }) return Direction.OUT
         return Direction.OUT
     }
 
-    fun extractMerchant(title: String, body: String, isWallet: Boolean): String {
+    /** Merchant from explicit wording only ("u obchodníka X", "at X", "od X"), or null. */
+    fun merchantFromPatterns(title: String, body: String, isWallet: Boolean): String? {
         if (isWallet && title.isNotBlank() && !title.contains("wallet", ignoreCase = true)) {
             return clean(title)
         }
@@ -109,11 +134,16 @@ object NotificationParser {
                 if (candidate.length >= 2 && !AmountParser.containsMoney(candidate)) return candidate
             }
         }
+        return null
+    }
+
+    fun extractMerchant(title: String, body: String, isWallet: Boolean): String {
+        merchantFromPatterns(title, body, isWallet)?.let { return it }
         // Many banks (e.g. George) put the merchant in the TITLE and a generic
         // "72,90 CZK paid by card 1234." in the body: prefer a non-generic title.
         val cleanTitle = clean(title)
         if (cleanTitle.length >= 2 && !isGenericTitle(cleanTitle)) return cleanTitle
-        val stripped = clean(stripAmounts(body))
+        val stripped = clean(stripAmounts(body).replace(GREETING, " "))
         return when {
             stripped.length in 2..60 -> stripped
             cleanTitle.isNotBlank() -> cleanTitle
@@ -121,10 +151,13 @@ object NotificationParser {
         }
     }
 
+    private val GREETING = Regex("""(?i)dobr[ýy]\s+den[^\n,]*,?|hello[^\n,]*,?|hi [^\n,]*,""")
+
     private val GENERIC_TITLE_WORDS = setOf(
         "platba", "kartou", "karta", "karty", "odchozi", "prichozi", "transakce", "prevod", "uhrada",
         "payment", "card", "transaction", "incoming", "outgoing", "transfer", "received", "sent",
         "vraceni", "refund", "vyber", "bankomat", "atm", "nova", "new", "z", "na", "uctu", "ucet", "account",
+        "uctem", "platby", "prevodem", "informace", "oznameni", "notifikace", "pohyb", "pohyby", "zustatek",
     )
 
     /** "Platba kartou", "Příchozí platba", "Card payment" carry no merchant. */
