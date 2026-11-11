@@ -37,6 +37,7 @@ class SecretVault(context: Context) {
         const val T212_API_SECRET = "t212_api_secret"
         const val GMAIL_ADDRESS = "gmail_address"
         const val GMAIL_APP_PASSWORD = "gmail_app_password"
+        const val BACKUP_PASSWORD = "backup_password"
         private const val PREFS = "vault_secrets"
         private const val KEY_ALIAS = "vaultflow_secret_vault_key"
     }

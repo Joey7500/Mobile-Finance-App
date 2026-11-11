@@ -32,8 +32,8 @@ android {
         applicationId = "io.github.joey7500.vaultflow"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     signingConfigs {
@@ -122,6 +122,13 @@ dependencies {
     implementation(libs.android.mail)
     implementation(libs.android.activation)
     implementation(libs.androidx.work.runtime.ktx)
+
+    // Encrypted backups in the user's own Google Drive (drive.file scope only).
+    implementation(libs.play.services.auth)
+    implementation(libs.kotlinx.coroutines.play.services)
+
+    // Home-screen widget.
+    implementation(libs.androidx.glance.appwidget)
 
     testImplementation(libs.junit)
 }

@@ -9,6 +9,7 @@ import io.github.joey7500.vaultflow.data.repository.BackupManager
 import io.github.joey7500.vaultflow.data.repository.FinanceRepository
 import io.github.joey7500.vaultflow.data.repository.SettingsStore
 import io.github.joey7500.vaultflow.data.repository.WealthRepository
+import io.github.joey7500.vaultflow.backup.DriveBackupService
 import io.github.joey7500.vaultflow.email.EmailSync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +41,7 @@ class AppContainer(context: Context) {
     val wealth by lazy { WealthRepository(db, settings, finance, vault, isDemo) }
     val backup by lazy { BackupManager(db) }
     val emailSync by lazy { EmailSync(vault, finance, settings) }
+    val driveBackup by lazy { DriveBackupService(appContext, backup, vault, settings) }
 
     private val initLock = Mutex()
     private var initialized = false

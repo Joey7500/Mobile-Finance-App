@@ -3,6 +3,7 @@ package io.github.joey7500.vaultflow
 import android.app.Application
 import io.github.joey7500.vaultflow.core.security.SecretVault
 import io.github.joey7500.vaultflow.di.AppContainer
+import io.github.joey7500.vaultflow.backup.DriveBackupWorker
 import io.github.joey7500.vaultflow.email.EmailSyncWorker
 import io.github.joey7500.vaultflow.ui.lock.LockState
 
@@ -19,6 +20,9 @@ class VaultFlowApp : Application() {
         container = AppContainer(this)
         if (!container.isDemo && container.vault.has(SecretVault.GMAIL_APP_PASSWORD)) {
             EmailSyncWorker.schedulePeriodic(this)
+        }
+        if (!container.isDemo && container.vault.has(SecretVault.BACKUP_PASSWORD)) {
+            DriveBackupWorker.schedule(this) // no-op until Google Drive is connected
         }
     }
 
