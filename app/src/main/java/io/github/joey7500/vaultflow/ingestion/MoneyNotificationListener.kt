@@ -8,6 +8,7 @@ import io.github.joey7500.vaultflow.domain.ingest.AmountParser
 import io.github.joey7500.vaultflow.domain.ingest.Channel
 import io.github.joey7500.vaultflow.domain.ingest.IncomingMessage
 import io.github.joey7500.vaultflow.email.EmailSyncWorker
+import io.github.joey7500.vaultflow.widget.SafeToSpendWidget
 import kotlinx.coroutines.launch
 
 /**
@@ -46,7 +47,10 @@ class MoneyNotificationListener : NotificationListenerService() {
                     IncomingMessage(Channel.NOTIFICATION, sbn.packageName, key, postedAt, title, text),
                 )
                 // The bank e-mail follows ~6 min later: check the inbox soon to confirm it.
-                if (handled) EmailSyncWorker.scheduleSoon(applicationContext)
+                if (handled) {
+                    EmailSyncWorker.scheduleSoon(applicationContext)
+                    SafeToSpendWidget.refresh(applicationContext)
+                }
             }
         }
     }

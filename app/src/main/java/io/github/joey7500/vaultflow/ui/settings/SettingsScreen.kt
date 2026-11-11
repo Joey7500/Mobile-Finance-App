@@ -299,10 +299,11 @@ fun SettingsScreen(onRestartRequested: () -> Unit) {
 
         // ───────── Backup ─────────
         SectionLabel("Backup")
+        if (!vm.isDemo) DriveBackupCard(vm, onRestartRequested)
         GlassCard {
+            Text("Manual backup file", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Uninstalling the app or resetting the phone destroys the encryption key, so your data would be lost. " +
-                    "Export an encrypted backup regularly (e.g. to Google Drive). API keys are not included.",
+                "Save or restore an encrypted backup file anywhere you like. API keys are not included.",
                 style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
@@ -326,6 +327,17 @@ fun SettingsScreen(onRestartRequested: () -> Unit) {
                     )
                 }
                 Switch(checked = allow, onCheckedChange = { vm.setAllowScreenshots(context as? android.app.Activity, it) })
+            }
+            val widgetAmount by vm.widgetShowAmount.collectAsStateWithLifecycle()
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Show amount on the widget", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Long-press the home screen → Widgets → VaultFlow to add it. Off = the widget only shows Healthy / At risk.",
+                        style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+                    )
+                }
+                Switch(checked = widgetAmount, onCheckedChange = { vm.setWidgetShowAmount(context, it) })
             }
         }
 
@@ -583,5 +595,111 @@ private fun PeriodCard(vm: SettingsViewModel) {
             style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
         )
         TextButton(enabled = day != current.safeStartDay || grace != current.safeGraceDays, onClick = { vm.setPeriod(day, grace) }) { Text("Save") }
+    }
+}
+
+@Composable
+private fun DriveBackupCard(vm: SettingsViewModel, onRestartRequested: () -> Unit) {
+    val context = LocalContext.current
+    val status by vm.driveStatus.collectAsStateWithLifecycle()
+    val backups by vm.driveBackups.collectAsStateWithLifecycle()
+    var askPassword by remember { mutableStateOf(false) }
+    var showList by remember { mutableStateOf(false) }
+    var restoreFile by remember { mutableStateOf<io.github.joey7500.vaultflow.backup.DriveFile?>(null) }
+
+    val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
+        if (res.resultCode == android.app.Activity.RESULT_OK) {
+            runCatching {
+                com.google.android.gms.auth.api.identity.Identity.getAuthorizationClient(context).getAuthorizationResultFromIntent(res.data)
+            }.onSuccess { vm.onDriveConnected(context) }
+                .onFailure { vm.notify("Google Drive: ${it.message}") }
+        } else {
+            vm.notify("Google Drive connection cancelled")
+        }
+    }
+
+    fun connect() {
+        val activity = context as? android.app.Activity ?: return
+        com.google.android.gms.auth.api.identity.Identity.getAuthorizationClient(activity)
+            .authorize(io.github.joey7500.vaultflow.backup.DriveAuth.request())
+            .addOnSuccessListener { r ->
+                val pending = r.pendingIntent
+                if (r.hasResolution() && pending != null) {
+                    authLauncher.launch(androidx.activity.result.IntentSenderRequest.Builder(pending.intentSender).build())
+                } else {
+                    vm.onDriveConnected(context)
+                }
+            }
+            .addOnFailureListener { e ->
+                val hint = if (e.message.orEmpty().contains("10:")) " (OAuth client not set up for this app: see docs/BACKUP.md)" else ""
+                vm.notify("Google sign-in failed: ${e.message}$hint")
+            }
+    }
+
+    GlassCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Google Drive (daily)", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Pill(if (status.connected) "Connected" else "Off", if (status.connected) VaultColors.Emerald else VaultColors.Muted)
+        }
+        Text(
+            "Every day VaultFlow encrypts all your data with your backup password and uploads it to the folder " +
+                "\"VaultFlow backups\" in your Google Drive (newest 30 kept). Google only stores ciphertext. " +
+                "Restore works on any phone with this app and the password.",
+            style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+        )
+        Spacer(Modifier.height(8.dp))
+        LabeledRow("Backup password", if (status.hasPassword) "set ✓" else "not set", if (status.hasPassword) VaultColors.Emerald else VaultColors.Amber)
+        if (status.lastResult.isNotBlank()) {
+            Text(status.lastResult, style = MaterialTheme.typography.bodySmall, color = if (status.lastResult.startsWith("Error")) VaultColors.Amber else VaultColors.Muted)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+            if (!status.connected) {
+                Button(onClick = { connect() }) { Text("Connect Google Drive") }
+            } else {
+                Button(enabled = status.hasPassword, onClick = vm::driveBackupNow) { Text("Back up now") }
+                OutlinedButton(onClick = { vm.loadDriveBackups(); showList = true }) { Text("Restore…") }
+            }
+        }
+        Row {
+            TextButton(onClick = { askPassword = true }) { Text(if (status.hasPassword) "Change password" else "Set backup password") }
+            if (status.connected) TextButton(onClick = { vm.disconnectDrive(context) }) { Text("Disconnect", color = VaultColors.Rose) }
+        }
+    }
+
+    if (askPassword) {
+        PasswordDialog(
+            title = "Backup password",
+            confirm = true,
+            warning = "You need this password to restore on a new phone. Save it in your password manager.",
+            onDone = { pwd -> askPassword = false; vm.setBackupPassword(context, pwd) },
+            onDismiss = { askPassword = false },
+        )
+    }
+    if (showList) {
+        AlertDialog(
+            onDismissRequest = { showList = false },
+            title = { Text("Restore from Google Drive") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    if (backups.isEmpty()) Text("Loading… (or no backups yet)", style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
+                    backups.forEach { f ->
+                        Row(Modifier.fillMaxWidth().clickable { restoreFile = f; showList = false }.padding(vertical = 10.dp)) {
+                            Text(f.name.removePrefix("vaultflow-").removeSuffix(".vfbackup"), modifier = Modifier.weight(1f))
+                            Text("${f.size / 1024} kB", color = VaultColors.Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showList = false }) { Text("Close") } },
+        )
+    }
+    restoreFile?.let { f ->
+        PasswordDialog(
+            title = "Restore ${f.name.removePrefix("vaultflow-").removeSuffix(".vfbackup")}",
+            confirm = false,
+            warning = "This REPLACES all data currently in the app.",
+            onDone = { pwd -> restoreFile = null; vm.restoreFromDrive(f, pwd) { onRestartRequested() } },
+            onDismiss = { restoreFile = null },
+        )
     }
 }

@@ -11,6 +11,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.github.joey7500.vaultflow.VaultFlowApp
+import io.github.joey7500.vaultflow.widget.SafeToSpendWidget
 import java.util.concurrent.TimeUnit
 
 /** Background inbox check: every 15 minutes, plus ~8 minutes after each captured payment. */
@@ -22,6 +23,7 @@ class EmailSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
         if (!container.emailSync.isConfigured) return Result.success()
         container.initialize()
         val result = container.emailSync.run()
+        if (result.processed > 0) SafeToSpendWidget.refresh(applicationContext)
         // Authentication problems need the user; network hiccups are retried.
         return if (result.error == null || result.error.contains("App Password")) Result.success() else Result.retry()
     }

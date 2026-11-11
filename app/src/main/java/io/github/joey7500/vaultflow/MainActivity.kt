@@ -25,6 +25,7 @@ import io.github.joey7500.vaultflow.ui.AppShell
 import io.github.joey7500.vaultflow.ui.lock.LockScreen
 import io.github.joey7500.vaultflow.ui.theme.VaultColors
 import io.github.joey7500.vaultflow.ui.theme.VaultFlowTheme
+import io.github.joey7500.vaultflow.widget.SafeToSpendWidget
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
@@ -62,7 +63,10 @@ class MainActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
-        if (!isChangingConfigurations) app.lock.onBackground()
+        if (!isChangingConfigurations) {
+            app.lock.onBackground()
+            SafeToSpendWidget.refresh(this) // budget edits show up on the home screen
+        }
     }
 
     /** Android 11+: strong biometrics or PIN/pattern. Android 10 cannot combine STRONG with a device credential. */

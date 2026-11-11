@@ -246,6 +246,80 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         if (allow) activity?.window?.clearFlags(flag) else activity?.window?.addFlags(flag)
     }
 
+    // ── Google Drive backup ──
+    data class DriveStatus(val connected: Boolean = false, val hasPassword: Boolean = false, val lastResult: String = "")
+
+    private val driveRefresh = MutableStateFlow(0)
+    val driveStatus: StateFlow<DriveStatus> = combine(c.settings.all, driveRefresh) { s, _ ->
+        val at = s[SettingsStore.DRIVE_LAST_BACKUP_AT]?.toLongOrNull()
+        DriveStatus(
+            connected = s[SettingsStore.DRIVE_CONNECTED] == "true",
+            hasPassword = c.driveBackup.hasPassword,
+            lastResult = listOfNotNull(
+                at?.let { "Last backup " + io.github.joey7500.vaultflow.ui.components.formatDateTime(it) },
+                s[SettingsStore.DRIVE_LAST_RESULT],
+            ).joinToString(" · "),
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DriveStatus())
+
+    val driveBackups = MutableStateFlow<List<io.github.joey7500.vaultflow.backup.DriveFile>>(emptyList())
+
+    fun notify(message: String) = say(message)
+
+    fun setBackupPassword(context: android.content.Context, password: CharArray) {
+        c.vault.put(SecretVault.BACKUP_PASSWORD, String(password))
+        password.fill(' ')
+        driveRefresh.value++
+        io.github.joey7500.vaultflow.backup.DriveBackupWorker.schedule(context)
+        say("Backup password saved in the encrypted vault")
+    }
+
+    fun onDriveConnected(context: android.content.Context) = viewModelScope.launch {
+        c.driveBackup.markConnected(true)
+        io.github.joey7500.vaultflow.backup.DriveBackupWorker.schedule(context)
+        say(if (c.driveBackup.hasPassword) "Google Drive connected · first backup running" else "Google Drive connected · now set a backup password")
+        if (c.driveBackup.hasPassword) driveBackupNow()
+    }
+
+    fun disconnectDrive(context: android.content.Context) = viewModelScope.launch {
+        c.driveBackup.markConnected(false)
+        io.github.joey7500.vaultflow.backup.DriveBackupWorker.cancel(context)
+        say("Google Drive backups stopped (existing backups stay in your Drive)")
+    }
+
+    fun driveBackupNow() {
+        viewModelScope.launch {
+            busy.value = true
+            val r = runCatching { c.driveBackup.backupNow() }
+            busy.value = false
+            say(r.fold({ "Backed up to Google Drive: $it" }, { "Backup failed: ${it.message}" }))
+        }
+    }
+
+    fun loadDriveBackups() = viewModelScope.launch {
+        driveBackups.value = emptyList()
+        runCatching { c.driveBackup.listBackups() }
+            .onSuccess { driveBackups.value = it }
+            .onFailure { say("Could not list backups: ${it.message}") }
+    }
+
+    fun restoreFromDrive(file: io.github.joey7500.vaultflow.backup.DriveFile, password: CharArray, onDone: () -> Unit) = viewModelScope.launch {
+        busy.value = true
+        val r = runCatching { c.driveBackup.restore(file, password) }
+        password.fill(' ')
+        busy.value = false
+        r.fold({ say("Restored $it transactions from Google Drive"); onDone() }, { say(it.message ?: "Restore failed") })
+    }
+
+    // ── Widget ──
+    val widgetShowAmount = MutableStateFlow(c.prefs.widgetShowAmount)
+
+    fun setWidgetShowAmount(context: android.content.Context, show: Boolean) {
+        c.prefs.widgetShowAmount = show
+        widgetShowAmount.value = show
+        io.github.joey7500.vaultflow.widget.SafeToSpendWidget.refresh(context)
+    }
+
     // ── Demo ──
     fun setDemoMode(enabled: Boolean) {
         c.prefs.demoMode = enabled

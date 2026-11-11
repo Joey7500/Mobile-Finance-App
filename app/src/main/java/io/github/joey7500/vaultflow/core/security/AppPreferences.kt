@@ -19,6 +19,13 @@ class AppPreferences(context: Context) {
             prefs.edit().putBoolean(KEY_SCREENSHOTS, value).apply()
         }
 
+    /** Show the amount on the home-screen widget (off = only the Healthy / At risk status). */
+    var widgetShowAmount: Boolean
+        get() = prefs.getBoolean(KEY_WIDGET_AMOUNT, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_WIDGET_AMOUNT, value).apply()
+        }
+
     var onboardingDone: Boolean
         get() = prefs.getBoolean(KEY_ONBOARDING, false)
         set(value) {
@@ -29,5 +36,6 @@ class AppPreferences(context: Context) {
         const val KEY_DEMO = "demo_mode"
         const val KEY_ONBOARDING = "onboarding_done"
         const val KEY_SCREENSHOTS = "allow_screenshots"
+        const val KEY_WIDGET_AMOUNT = "widget_show_amount"
     }
 }

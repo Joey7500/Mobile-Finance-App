@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">VaultFlow</string>
     <string name="notification_listener_label">VaultFlow transaction capture</string>
+    <string name="widget_name">Safe to spend</string>
+    <string name="widget_description">How much you can spend or invest without touching your reserve</string>
 </resources>
