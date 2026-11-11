@@ -64,4 +64,11 @@ class ClassifierTest {
         assertEquals("ALBERT BRNO", Classifier.learnedPattern("Albert 0123 Brno"))
         assertNull(Classifier.learnedPattern("12345"))
     }
+
+    @Test fun `learning from an account-number merchant learns the account`() {
+        assertEquals("1234567/9999", Classifier.learnedPattern("Payment from 1234567/9999"))
+        assertNull(Classifier.learnedPattern("Payment from"))
+        val rule = ClassificationRule(1, "1234567/9999", RuleMatch.CONTAINS, categoryId = 5, createdAtMillis = 0)
+        assertEquals(5L, Classifier(listOf(rule)).classify("Payment from 1234567/9999", amountMinor = 700_000).categoryId)
+    }
 }

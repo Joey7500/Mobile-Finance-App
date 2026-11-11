@@ -227,8 +227,8 @@ fun BalanceCheckLine(account: io.github.joey7500.vaultflow.domain.model.Account)
     val diff = account.lastCheckDiffMinor ?: 0L
     val ok = kotlin.math.abs(diff) < 100 // within 1 Kč
     Text(
-        if (ok) "Bank balance check ${formatDateTime(at)} ✓ matches"
-        else "Bank check ${formatDateTime(at)} ⚠ app was off by ${money(diff, decimals = true)}, corrected (a payment may be missing)",
+        if (ok) "✓ Matched the bank's balance at ${formatDateTime(at)}"
+        else "⚠ At ${formatDateTime(at)} the app was off by ${money(diff, decimals = true)} and was corrected (a payment may be missing)",
         style = MaterialTheme.typography.bodySmall,
         color = if (ok) VaultColors.Emerald else VaultColors.Amber,
     )

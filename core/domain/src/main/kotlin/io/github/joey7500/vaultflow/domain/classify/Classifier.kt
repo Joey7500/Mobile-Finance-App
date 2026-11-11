@@ -69,12 +69,20 @@ class Classifier(
          * fragments) are dropped so "ALBERT 0123 BRNO" learns "ALBERT BRNO".
          */
         fun learnedPattern(merchant: String): String? {
-            val tokens = TextNormalizer.merchantKey(merchant)
-                .split(' ')
-                .filter { it.isNotBlank() && it.none(Char::isDigit) }
+            val key = TextNormalizer.merchantKey(merchant)
+            // "Payment from 1234567/9999" (e.g. your friend's share of the rent): learn the ACCOUNT.
+            ACCOUNT.find(key)?.let { return it.value }
+            val tokens = key.split(' ').filter { it.isNotBlank() && it.none(Char::isDigit) }
+            if (tokens.all { it in GENERIC_WORDS }) return null // never learn "PAYMENT FROM"
             val pattern = tokens.joinToString(" ").trim()
             return pattern.takeIf { it.length >= 3 }
         }
+
+        private val ACCOUNT = Regex("""(?:\d{1,6}-)?\d{4,10}/\d{4}""")
+        private val GENERIC_WORDS = setOf(
+            "PAYMENT", "FROM", "TO", "TRANSFER", "PLATBA", "PRICHOZI", "ODCHOZI", "PREVOD", "NA", "Z", "UCET", "UCTU",
+            "KARTOU", "CARD", "PAID", "INCOME", "EXPENSE",
+        )
     }
 }
 

@@ -222,6 +222,25 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         result.fold({ say("Restored $it transactions"); onDone() }, { say(it.message ?: "Import failed") })
     }
 
+    // ── Budget period ──
+    val periodSettings: StateFlow<io.github.joey7500.vaultflow.domain.budget.PeriodSettings> = c.finance.periodSettings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), io.github.joey7500.vaultflow.domain.budget.PeriodSettings())
+
+    fun setPeriod(startDay: Int, graceDays: Int) = viewModelScope.launch {
+        c.finance.setPeriodSettings(startDay, graceDays)
+        say(if (startDay == 1) "Budget follows calendar months" else "Budget periods now start on day $startDay")
+    }
+
+    // ── Privacy ──
+    val allowScreenshots = MutableStateFlow(c.prefs.allowScreenshots)
+
+    fun setAllowScreenshots(activity: android.app.Activity?, allow: Boolean) {
+        c.prefs.allowScreenshots = allow
+        allowScreenshots.value = allow
+        val flag = android.view.WindowManager.LayoutParams.FLAG_SECURE
+        if (allow) activity?.window?.clearFlags(flag) else activity?.window?.addFlags(flag)
+    }
+
     // ── Demo ──
     fun setDemoMode(enabled: Boolean) {
         c.prefs.demoMode = enabled

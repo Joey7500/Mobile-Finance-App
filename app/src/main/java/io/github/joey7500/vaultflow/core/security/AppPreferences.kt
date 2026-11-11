@@ -12,6 +12,13 @@ class AppPreferences(context: Context) {
             prefs.edit().putBoolean(KEY_DEMO, value).commit()
         }
 
+    /** Off by default: FLAG_SECURE hides balances from screenshots and the Recents preview. */
+    var allowScreenshots: Boolean
+        get() = prefs.getBoolean(KEY_SCREENSHOTS, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_SCREENSHOTS, value).apply()
+        }
+
     var onboardingDone: Boolean
         get() = prefs.getBoolean(KEY_ONBOARDING, false)
         set(value) {
@@ -21,5 +28,6 @@ class AppPreferences(context: Context) {
     private companion object {
         const val KEY_DEMO = "demo_mode"
         const val KEY_ONBOARDING = "onboarding_done"
+        const val KEY_SCREENSHOTS = "allow_screenshots"
     }
 }

@@ -66,7 +66,6 @@ import io.github.joey7500.vaultflow.ui.containerViewModel
 import io.github.joey7500.vaultflow.ui.theme.VaultColors
 import java.time.format.DateTimeFormatter
 
-private val monthFmt = DateTimeFormatter.ofPattern("LLLL yyyy")
 
 @Composable
 fun BudgetScreen() {
@@ -87,13 +86,13 @@ fun BudgetScreen() {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Budget", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                    IconButton(onClick = vm::previousMonth) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous month") }
-                    Text(state.month.format(monthFmt).replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.titleSmall)
-                    IconButton(onClick = vm::nextMonth) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next month") }
+                    IconButton(onClick = vm::previousMonth) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous period") }
+                    Text(state.period.label(), style = MaterialTheme.typography.titleSmall)
+                    IconButton(onClick = vm::nextMonth) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next period") }
                 }
             }
 
-            if (state.isCurrentMonth) item { ReserveCard(state.reserve) }
+            if (state.isCurrentPeriod) item { ReserveCard(state.reserve) }
 
             state.summary?.let { s ->
                 item {
@@ -103,7 +102,7 @@ fun BudgetScreen() {
                         StatTile("INVESTED", money(s.investmentsMinor), VaultColors.Sky, Modifier.weight(1f))
                     }
                     Spacer(Modifier.height(6.dp))
-                    LabeledRow("Net cash flow this month", money(s.netCashFlowMinor), moneyColor(s.netCashFlowMinor))
+                    LabeledRow("Net cash flow this period", money(s.netCashFlowMinor), moneyColor(s.netCashFlowMinor))
                     val confirmed = state.transactions.count { it.evidence.contains(io.github.joey7500.vaultflow.domain.model.TransactionSource.EMAIL) }
                     if (confirmed > 0) {
                         LabeledRow("Confirmed by bank e-mail", "$confirmed of ${state.transactions.size}")
@@ -145,7 +144,7 @@ fun BudgetScreen() {
             if (state.loaded && state.transactions.isEmpty()) {
                 item {
                     Text(
-                        "No transactions this month yet. Add one with + or enable automatic capture in Settings.",
+                        "No transactions in this period yet. Add one with + or enable automatic capture in Settings.",
                         style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
                     )
                 }
@@ -178,7 +177,7 @@ fun BudgetScreen() {
         AddTransactionDialog(
             state = state,
             onAdd = { amount, income, merchant, cat, acc ->
-                vm.addManual(amount, income, merchant, cat, acc, vm.defaultDateFor(state.month))
+                vm.addManual(amount, income, merchant, cat, acc, vm.defaultDateFor(state))
                 adding = false
             },
             onDismiss = { adding = false },
@@ -210,7 +209,7 @@ private fun ReserveCard(reserve: ReserveStatus?) {
         Spacer(Modifier.height(4.dp))
         LabeledRow("Liquid cash now", money(reserve.liquidMinor))
         LabeledRow("Reserve floor", "− " + money(reserve.floorMinor))
-        LabeledRow("Still budgeted this month", "− " + money(reserve.remainingPlannedOutflowMinor))
+        LabeledRow("Still budgeted this period", "− " + money(reserve.remainingPlannedOutflowMinor))
         Text("Income not received yet is not counted.", style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
     }
 }
@@ -295,7 +294,7 @@ private fun BudgetDialog(line: CategoryLine, onSave: (Long) -> Unit, onDismiss: 
         text = {
             Column {
                 Text(
-                    if (line.category.kind == FlowKind.INCOME) "Expected monthly income" else "Monthly budget",
+                    if (line.category.kind == FlowKind.INCOME) "Expected income per period" else "Budget per period",
                     style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
                 )
                 Spacer(Modifier.height(8.dp))

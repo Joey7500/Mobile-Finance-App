@@ -142,6 +142,10 @@ fun SettingsScreen(onRestartRequested: () -> Unit) {
         SectionLabel("Bank e-mails (Gmail)")
         GmailCard(vm)
 
+        // ───────── Budget period ─────────
+        SectionLabel("Budget period")
+        PeriodCard(vm)
+
         // ───────── Reserve ─────────
         SectionLabel("Reserve floor")
         GlassCard {
@@ -303,6 +307,23 @@ fun SettingsScreen(onRestartRequested: () -> Unit) {
                 OutlinedButton(enabled = !isDemoOrBusy(vm.isDemo, busy), onClick = { openDoc.launch(arrayOf("*/*")) }) { Text("Restore") }
             }
             if (vm.isDemo) Text("Not available in Demo Mode.", style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
+        }
+
+        // ───────── Privacy ─────────
+        SectionLabel("Privacy")
+        GlassCard {
+            val allow by vm.allowScreenshots.collectAsStateWithLifecycle()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Allow screenshots", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Off = balances are hidden from screenshots, screen recording and the Recents preview. " +
+                            "Turn on only while you need to share a screen.",
+                        style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+                    )
+                }
+                Switch(checked = allow, onCheckedChange = { vm.setAllowScreenshots(context as? android.app.Activity, it) })
+            }
         }
 
         // ───────── Demo ─────────
@@ -536,4 +557,28 @@ private fun PasswordDialog(title: String, confirm: Boolean, warning: String? = n
         confirmButton = { TextButton(enabled = ok, onClick = { onDone(p1.toCharArray()) }) { Text("Continue") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+@Composable
+private fun PeriodCard(vm: SettingsViewModel) {
+    val current by vm.periodSettings.collectAsStateWithLifecycle()
+    var day by remember(current) { mutableStateOf(current.safeStartDay) }
+    var grace by remember(current) { mutableStateOf(current.safeGraceDays) }
+    GlassCard {
+        Text(
+            "Paid mid-month? Start each period on payday: the salary then pays for the same period's rent and " +
+                "spending, and the reserve watchdog stops warning before payday. Day 1 = calendar months.",
+            style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DropdownChooser("Period starts on day", (1..28).map { it to if (it == 1) "1 (calendar month)" else "$it" }, day, { day = it }, Modifier.weight(1f))
+            DropdownChooser("Early income counts", listOf(0, 1, 2, 3, 5, 7).map { it to if (it == 0) "off" else "$it days before" }, grace, { grace = it }, Modifier.weight(1f))
+        }
+        Text(
+            "Early income: a salary arriving on Friday the 13th instead of the 15th still funds the new period.",
+            style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+        )
+        TextButton(enabled = day != current.safeStartDay || grace != current.safeGraceDays, onClick = { vm.setPeriod(day, grace) }) { Text("Save") }
+    }
 }

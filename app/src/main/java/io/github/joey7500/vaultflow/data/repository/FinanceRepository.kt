@@ -28,6 +28,8 @@ import io.github.joey7500.vaultflow.domain.model.ManualAsset
 import io.github.joey7500.vaultflow.domain.model.RuleMatch
 import io.github.joey7500.vaultflow.domain.model.Transaction
 import io.github.joey7500.vaultflow.domain.text.TextNormalizer
+import io.github.joey7500.vaultflow.domain.budget.PeriodSettings
+import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import kotlinx.coroutines.flow.Flow
@@ -66,6 +68,25 @@ class FinanceRepository(
         val from = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
         val to = month.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
         return from to to
+    }
+
+    val periodSettings: Flow<PeriodSettings> = settings.all.map {
+        PeriodSettings(
+            startDay = it[SettingsStore.PERIOD_START_DAY]?.toIntOrNull() ?: 1,
+            incomeGraceDays = it[SettingsStore.INCOME_GRACE_DAYS]?.toIntOrNull() ?: 0,
+        )
+    }
+
+    suspend fun setPeriodSettings(startDay: Int, graceDays: Int) {
+        settings.put(SettingsStore.PERIOD_START_DAY, startDay.coerceIn(1, 28).toString())
+        settings.put(SettingsStore.INCOME_GRACE_DAYS, graceDays.coerceIn(0, 10).toString())
+    }
+
+    /** Transactions with dates in [from, toExclusive). */
+    fun transactionsBetween(from: LocalDate, toExclusive: LocalDate): Flow<List<Transaction>> {
+        val a = from.atStartOfDay(zone).toInstant().toEpochMilli()
+        val b = toExclusive.atStartOfDay(zone).toInstant().toEpochMilli()
+        return db.transactions().observeBetween(a, b).map { list -> list.map { it.toDomain() } }
     }
 
     fun transactionsIn(month: YearMonth): Flow<List<Transaction>> {

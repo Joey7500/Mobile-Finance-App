@@ -37,7 +37,9 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
 
         // Balances never appear in screenshots, screen recordings or the Recents switcher.
-        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        if (!app.container.prefs.allowScreenshots) {
+            window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        }
 
         setContent {
             VaultFlowTheme {
