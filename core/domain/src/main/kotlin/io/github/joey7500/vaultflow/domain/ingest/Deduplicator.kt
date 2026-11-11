@@ -30,6 +30,7 @@ object Deduplicator {
     const val WINDOW_MS: Long = 10 * 60 * 1000L
     const val EMAIL_WINDOW_MS: Long = 3 * 60 * 60 * 1000L
     const val TRANSFER_WINDOW_MS: Long = 72 * 60 * 60 * 1000L
+    const val SAME_MOMENT_MS: Long = 3 * 60 * 1000L
 
     fun findDuplicate(candidate: Transaction, recent: List<Transaction>): Transaction? =
         recent.filter { isDuplicate(candidate, it) }
@@ -62,6 +63,12 @@ object Deduplicator {
             return candidate.accountId != null && candidate.accountId == existing.accountId
         }
         val strict = existing.source == MANUAL || candidate.source == MANUAL
+        // Two apps reporting the exact same amount on the SAME account within 3 minutes is
+        // the same payment, however differently they spell the merchant.
+        val sameAccount = candidate.accountId != null && candidate.accountId == existing.accountId
+        if (!strict && sameAccount && abs(candidate.timestampMillis - existing.timestampMillis) <= SAME_MOMENT_MS && candidate.amountCzkMinor == existing.amountCzkMinor) {
+            return true
+        }
         return merchantsCompatible(candidate.merchant, existing.merchant, strict)
     }
 
@@ -74,15 +81,26 @@ object Deduplicator {
             abs(a.amountCzkMinor - b.amountCzkMinor) <= tolerance
         }
 
+    /**
+     * "NYX*VeryGoodiesas" (Wallet) and "Very Goodies" (Revolut) are the same shop:
+     * compare word by word AND with spaces/punctuation removed, since every source
+     * spells merchants differently.
+     */
     fun merchantsCompatible(a: String, b: String, strict: Boolean = false): Boolean {
         val ta = tokens(a)
         val tb = tokens(b)
         if (ta.isEmpty() || tb.isEmpty()) return !strict
         if (ta.any { it in tb }) return true
-        val ka = TextNormalizer.merchantKey(a)
-        val kb = TextNormalizer.merchantKey(b)
-        return ka.contains(kb) || kb.contains(ka)
+        val ca = compact(a)
+        val cb = compact(b)
+        if (ca.length >= 4 && cb.length >= 4 && (ca.contains(cb) || cb.contains(ca))) return true
+        // Every word of one name appears inside the other ("VERY", "GOODIES" in "NYXVERYGOODIESAS").
+        if (ta.all { cb.contains(it) } || tb.all { ca.contains(it) }) return true
+        // Shared word start ("GOODIES" vs "GOODIESAS").
+        return ta.any { x -> x.length >= 4 && tb.any { y -> y.length >= 4 && (x.startsWith(y) || y.startsWith(x)) } }
     }
+
+    private fun compact(s: String): String = TextNormalizer.merchantKey(s).filter(Char::isLetterOrDigit)
 
     /** Which source is trusted for the AMOUNT (the bank's settled CZK value wins). */
     private fun amountRank(s: TransactionSource) = when (s) {

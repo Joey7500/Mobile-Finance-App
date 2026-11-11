@@ -96,11 +96,14 @@ object BankMessageParser {
 
         val amounts = AmountParser.findAll(full)
         val overdraft = amounts.firstOrNull { precededBy(full, it.range.first, listOf("kontokorent", "overdraft", "povolen")) }
-        val available = if (NotificationParser.isBalanceOnly(normalized)) {
-            amounts.firstOrNull { it != overdraft }
-        } else {
-            amounts.firstOrNull { it.isBalance && it != overdraft }
-        }
+        val available = (
+            if (NotificationParser.isBalanceOnly(normalized)) {
+                amounts.firstOrNull { it != overdraft }
+            } else {
+                amounts.firstOrNull { it.isBalance && it != overdraft }
+            }
+            // Accounts are kept in CZK: a "Zůstatek EUR: 12,30 €" pocket balance is not the account balance.
+            )?.takeIf { it.currency == "CZK" }
 
         val accounts = accountMentions(full)
         val cards = cardDigits(full)

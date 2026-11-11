@@ -258,4 +258,52 @@ Na účet: 7654321/9998
         assertEquals(30_000L, db.balanceDelta(3))
         assertTrue(db.rows.all { it.categoryId == 9L })
     }
+
+
+    @Test fun `wallet and revolut report one payment with differently spelled merchants`() {
+        val db = Db()
+        db.apply(IngestionPipeline.process(notif("com.revolut.revolut", at(10, 4), "Very Goodies", "\uD83D\uDED2 Zaplaceno 18 Kč\nZůstatek CZK: 2 701,00 Kč"), ctx(default = 3)))
+        db.apply(IngestionPipeline.process(notif(wallet, at(10, 4) + 2_000, "NYX*VeryGoodiesas", "18,00 Kč kartou Revolut Visa ••3043"), ctx(db.rows)))
+        assertEquals(1, db.rows.size)
+        val t = db.rows.single()
+        assertEquals(-1_800L, t.amountCzkMinor)
+        assertEquals(3L, t.accountId)
+        assertEquals("NYX*VeryGoodiesas", t.merchant)
+        assertEquals(setOf(TransactionSource.BANK_NOTIFICATION, TransactionSource.GOOGLE_WALLET), t.evidence)
+    }
+
+    @Test fun `wallet first, revolut second also merges and anchors after the payment`() {
+        val db = Db()
+        db.apply(IngestionPipeline.process(notif(wallet, at(10, 4), "NYX*VeryGoodiesas", "18,00 Kč kartou Revolut Visa ••3043"), ctx()))
+        val r = IngestionPipeline.process(notif("com.revolut.revolut", at(10, 4) + 3_000, "Very Goodies", "Zaplaceno 18 Kč\nZůstatek CZK: 2 701,00 Kč"), ctx(db.rows, default = 3))
+        db.apply(r)
+        assertEquals(1, db.rows.size)
+        assertEquals(270_100L, r.balance!!.ownFundsMinor)
+        assertTrue(r.balance!!.asOfMillis >= db.rows.single().timestampMillis)
+    }
+
+    @Test fun `revolut card payment with EUR amount and CZK balance`() {
+        val r = IngestionPipeline.process(
+            notif("com.revolut.revolut", at(9, 32), "Anthropic", "Zaplaceno 532,69 Kč (21,78 €) u Anthropic\nZůstatek CZK: 2 719,31 Kč"),
+            ctx(default = 3),
+        )
+        val tx = r.inserts.single()
+        assertEquals(-53_269L, tx.amountCzkMinor)
+        assertEquals(3L, tx.accountId)
+        assertEquals(6L, tx.categoryId)
+        assertEquals(271_931L, r.balance!!.ownFundsMinor)
+    }
+
+    @Test fun `balance of a foreign-currency pocket is not used as the CZK balance`() {
+        val r = IngestionPipeline.process(notif("com.revolut.revolut", at(9, 32), "Anthropic", "Zaplaceno 21,78 € u Anthropic\nZůstatek EUR: 12,30 €"), ctx(default = 3))
+        assertEquals(1, r.inserts.size)
+        assertNull(r.balance)
+    }
+
+    @Test fun `two different shops with the same amount minutes apart stay separate`() {
+        val db = Db()
+        db.apply(IngestionPipeline.process(notif(wallet, at(10, 0), "Albert", "89,00 Kč · Visa ••1111"), ctx()))
+        db.apply(IngestionPipeline.process(notif(george, at(10, 9), "Starbucks", "89,00 CZK paid by card 1111."), ctx(db.rows)))
+        assertEquals(2, db.rows.size)
+    }
 }
