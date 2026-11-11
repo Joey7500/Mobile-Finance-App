@@ -39,8 +39,10 @@ nothing is sent to a cloud service.
 - Biometric / PIN lock, auto-relock, `FLAG_SECURE`
 - SQLCipher-encrypted database, key wrapped by the hardware Android Keystore
 - In-app API key vault: no keys in code, config or git
-- Cloud/adb backup disabled; password-encrypted export instead
+- Android auto-backup disabled; instead a daily **password-encrypted backup to your Google Drive** (`drive.file` only, newest 30 kept) plus manual export
 - Pre-commit guard + CI gitleaks scan against leaking keys, IBANs or account numbers
+
+**Home-screen widget**: "Safe to spend" with the reserve status, amount can be hidden.
 
 **Demo mode**: synthetic data in a separate in-memory database, for screenshots and trying the app.
 
@@ -61,6 +63,8 @@ powershell -ExecutionPolicy Bypass -File scripts\install-hooks.ps1   # secret gu
 | Doc | What's inside |
 |---|---|
 | [docs/SETUP.md](docs/SETUP.md) | Step-by-step: PC setup, phone setup, first run, signed release build |
+| [docs/BACKUP.md](docs/BACKUP.md) | Encrypted Google Drive backup: Google Cloud setup, restore, troubleshooting |
+| [docs/RELEASE.md](docs/RELEASE.md) | Signed release build: create the key on your PC, install, move data from debug |
 | [docs/EMAIL.md](docs/EMAIL.md) | Connecting bank e-mails (Gmail) to confirm payments and balances |
 | [docs/SECURITY.md](docs/SECURITY.md) | Where every secret lives, leak protection layers, GitHub signing secrets |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modules, data flow, design decisions |

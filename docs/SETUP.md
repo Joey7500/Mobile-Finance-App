@@ -132,6 +132,10 @@ the category. Next time it's automatic.
 
 ## Part 6 — A "daily driver" build that keeps your data across updates
 
+> The detailed, current version of this part (key from PowerShell, moving data
+> via Google Drive, uninstalling the debug app) is **[RELEASE.md](RELEASE.md)**.
+> Google Drive backup setup: **[BACKUP.md](BACKUP.md)**.
+
 Android only lets you update an app with an APK signed by the **same key**.
 The debug key lives on your PC (`%USERPROFILE%\.android\debug.keystore`).
 That's fine as long as you always build on this PC. For a permanent install,

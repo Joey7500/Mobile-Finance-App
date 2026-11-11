@@ -11,11 +11,13 @@ on your phone or in a git-ignored file on your PC.
 | Trading 212 API key + secret | Typed into the app → encrypted with the phone's hardware **Android Keystore** | No: not in code, Gradle, BuildConfig, logs or backups |
 | Gmail address + App Password | Same Keystore vault; IMAP read-only. Revoke at myaccount.google.com/apppasswords | No |
 | Transactions, balances, budgets, rules, own account digits | **SQLCipher** AES-256 database on the phone; its key is wrapped by the Keystore | No |
+| Backup password | Same Keystore vault; needed to open any backup – keep a copy in your password manager | No: not in code, backups or logs |
+| Google Drive access | A `drive.file` token held by Google Play services; the app sees only its own backup folder. Revoke at myaccount.google.com/permissions | No |
 | Raw notification text (capture log) | Same encrypted DB, auto-deleted after 1 year, can be switched off or cleared | No |
 | Release signing key `*.jks` | Your PC, **outside** the repo folder + password manager backup | No: `.gitignore` + pre-commit hook block `*.jks` |
 | `keystore.properties` (signing passwords) | Repo root on your PC | No: git-ignored + hook blocks it |
 | `local.properties` (SDK path) | Repo root on your PC, created by Android Studio | No: git-ignored + hook blocks it |
-| Encrypted backups `*.vfbackup` | Wherever you save them (e.g. Google Drive) | No: git-ignored + hook blocks it |
+| Encrypted backups `*.vfbackup` | Your Google Drive (`VaultFlow backups`, encrypted on the phone before upload) or wherever you export them | No: git-ignored + hook blocks it |
 | GitHub Actions signing secrets | GitHub → Settings → Secrets (encrypted by GitHub) | Never written to files or logs |
 
 ## 2. Layers that stop leaks
@@ -91,7 +93,7 @@ data and no keys**. Your data only exists on your phone.
 | Someone picks up your unlocked phone | App relocks 30 s after leaving it; biometric prompt |
 | Malware reading app files (rooted phone) | DB and vault ciphertext are useless without the hardware-bound key |
 | Shoulder-surfing via Recents/screenshots | `FLAG_SECURE` |
-| Google cloud backup / adb backup | Disabled (`allowBackup=false`, data-extraction rules) |
+| Android auto cloud backup / adb backup | Disabled (`allowBackup=false`, data-extraction rules); VaultFlow's own Drive backup is end-to-end encrypted with your backup password |
 | Transactions sent to an AI/cloud service | Never: classification is 100 % on-device |
 
 Not covered: a fully compromised phone OS while the app is unlocked, or a
