@@ -306,4 +306,40 @@ Na účet: 7654321/9998
         db.apply(IngestionPipeline.process(notif(george, at(10, 9), "Starbucks", "89,00 CZK paid by card 1111."), ctx(db.rows)))
         assertEquals(2, db.rows.size)
     }
+
+    // ── Real evening of 11 Nov (from the capture log): Wallet re-posts the same payment ──
+
+    @Test fun `purkynka - wallet re-posts four times, george and e-mail - one transaction`() {
+        val db = Db()
+        val w = { t: Long, m: String -> notif(wallet, t, m, "360,00 Kč kartou ČS Visa Classic ••1111", key = "w$t$m") }
+        db.apply(IngestionPipeline.process(notif(george, at(18, 36), "\uD83D\uDCB3 Restaurace na Purkynce", "360,00 Kč platba kartou 1111."), ctx()))
+        db.apply(IngestionPipeline.process(w(at(18, 36) + 20_000, "Restaurace na Purkynce"), ctx(db.rows)))
+        db.apply(IngestionPipeline.process(w(at(18, 39), "Restaurace na Purkynce"), ctx(db.rows)))
+        db.apply(IngestionPipeline.process(mail(csMail, at(18, 42), "Platba kartou", cardMail("360,00", "Restaurace na Purkynce")), ctx(db.rows)))
+        db.apply(IngestionPipeline.process(w(at(19, 12), "Restaurace Na Purkyňce"), ctx(db.rows)))
+        db.apply(IngestionPipeline.process(w(at(19, 12) + 5_000, "Restaurace Na Purkyňce"), ctx(db.rows)))
+        assertEquals(1, db.rows.size)
+        assertEquals(-36_000L, db.rows.single().amountCzkMinor)
+        assertEquals(3, db.rows.single().evidence.size)
+    }
+
+    @Test fun `lidl - wallet posts twice in the same minute - one transaction`() {
+        val db = Db()
+        db.apply(IngestionPipeline.process(notif(george, at(19, 8), "\uD83D\uDCB3 Lidl dekuje za nakup", "166,80 Kč platba kartou 1111."), ctx()))
+        db.apply(IngestionPipeline.process(notif(wallet, at(19, 10), "Lidl dekuje za nakup", "166,80 Kč kartou ČS Visa Classic ••1111", key = "a"), ctx(db.rows)))
+        db.apply(IngestionPipeline.process(notif(wallet, at(19, 10) + 3_000, "Lidl dekuje za nakup", "166,80 Kč kartou ČS Visa Classic ••1111", key = "b"), ctx(db.rows)))
+        db.apply(IngestionPipeline.process(mail(csMail, at(19, 14), "Platba kartou", cardMail("166,80", "Lidl dekuje za nakup")), ctx(db.rows)))
+        assertEquals(1, db.rows.size)
+    }
+
+    @Test fun `two real coffees confirmed by the bank stay two even with wallet re-posts`() {
+        val db = Db()
+        for (t in listOf(at(8, 0), at(8, 30))) {
+            db.apply(IngestionPipeline.process(notif(george, t, "Starbucks", "89,00 CZK paid by card 1111."), ctx(db.rows)))
+            db.apply(IngestionPipeline.process(notif(wallet, t + 10_000, "Starbucks", "89,00 Kč · Visa ••1111", key = "w$t"), ctx(db.rows)))
+            db.apply(IngestionPipeline.process(notif(wallet, t + 60_000, "Starbucks", "89,00 Kč · Visa ••1111", key = "w2$t"), ctx(db.rows)))
+        }
+        assertEquals(2, db.rows.size)
+        assertEquals(-17_800L, db.balanceDelta(1))
+    }
 }

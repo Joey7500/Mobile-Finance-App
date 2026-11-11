@@ -26,10 +26,16 @@ class DeduplicatorTest {
         assertTrue(Deduplicator.isDuplicate(bank(-18_000, "ALBERT 0123 PRAHA"), wallet(-18_000, "Albert")))
     }
 
-    @Test fun `two identical coffees from the same app are NOT merged`() {
-        val first = wallet(-8_900, "Starbucks")
-        val second = wallet(-8_900, "Starbucks", at = t0 + 60_000)
+    @Test fun `two identical coffees reported by the bank app are NOT merged`() {
+        val first = bank(-8_900, "Starbucks")
+        val second = bank(-8_900, "Starbucks", at = t0 + 68_000)
         assertFalse(Deduplicator.isDuplicate(second, first))
+    }
+
+    @Test fun `wallet re-posting the same payment half an hour later is merged`() {
+        val first = wallet(-36_000, "Restaurace na Purkynce")
+        val repost = wallet(-36_000, "Restaurace Na Purkyňce", at = t0 + 36 * 60_000)
+        assertTrue(Deduplicator.isDuplicate(repost, first))
     }
 
     @Test fun `different merchants with same amount are not merged`() {

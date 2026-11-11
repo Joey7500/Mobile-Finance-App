@@ -31,6 +31,7 @@ object Deduplicator {
     const val EMAIL_WINDOW_MS: Long = 3 * 60 * 60 * 1000L
     const val TRANSFER_WINDOW_MS: Long = 72 * 60 * 60 * 1000L
     const val SAME_MOMENT_MS: Long = 3 * 60 * 1000L
+    const val WALLET_REPOST_WINDOW_MS: Long = 90 * 60 * 1000L
 
     fun findDuplicate(candidate: Transaction, recent: List<Transaction>): Transaction? =
         recent.filter { isDuplicate(candidate, it) }
@@ -42,19 +43,24 @@ object Deduplicator {
         if (candidate.accountId != null && existing.accountId != null && candidate.accountId != existing.accountId) return false
 
         val inferred = candidate.source == INFERRED || existing.source == INFERRED
+        // Google Wallet is a HINT, not a ledger: it re-posts the same payment (minutes or half
+        // an hour later, sometimes twice in a row, sometimes with a corrected merchant name).
+        // Its reports always fold into a matching payment; only bank sources (app notification,
+        // e-mail), which report each payment exactly once, may split two identical purchases.
+        val walletReport = candidate.source == GOOGLE_WALLET
         val window = when {
             inferred -> TRANSFER_WINDOW_MS
-            candidate.source == EMAIL || existing.source == EMAIL -> EMAIL_WINDOW_MS
+            candidate.source == EMAIL || EMAIL in existing.evidence -> EMAIL_WINDOW_MS
+            walletReport -> WALLET_REPOST_WINDOW_MS
             else -> WINDOW_MS
         }
         if (abs(candidate.timestampMillis - existing.timestampMillis) > window) return false
 
-        // Same source twice = two real transactions. This also applies to expected transfer
-        // counterparts: two identical top-ups are two counterparts (the SAME counterpart
-        // re-created by a later report is caught by its fingerprint above).
-        if (candidate.source in existing.evidence) return false
+        // Same BANK source twice = two real transactions (also for transfer counterparts; the
+        // SAME counterpart re-created by a later report is caught by its fingerprint above).
+        if (!walletReport && candidate.source in existing.evidence) return false
         val sameChannel = candidate.sourcePackage != null && candidate.sourcePackage == existing.sourcePackage
-        if (sameChannel && !inferred) return false
+        if (sameChannel && !inferred && !walletReport) return false
 
         if (!amountsMatch(candidate, existing)) return false
 
