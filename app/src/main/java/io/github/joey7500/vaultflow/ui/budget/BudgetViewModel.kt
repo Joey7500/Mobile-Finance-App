@@ -57,40 +57,29 @@ class BudgetViewModel(private val finance: FinanceRepository) : ViewModel() {
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages
 
-    val state: StateFlow<BudgetUiState> = combine(finance.periodSettings, offset) { s, o -> s to o }
-        .flatMapLatest { (settings, o) ->
-            val current = BudgetPeriods.containing(LocalDate.now(), settings)
-            val period = BudgetPeriods.shift(current, o, settings)
-            val (from, to) = BudgetPeriods.queryRange(period, settings)
-            val zone = ZoneId.systemDefault()
-            combine(
-                finance.categories,
-                finance.transactionsBetween(from, to),
-                finance.accounts,
-                finance.accountBalances,
-                finance.reserveFloorMinor,
-            ) { categories, loaded, accounts, balances, floor ->
-                val incomeIds = categories.filter { it.kind == FlowKind.INCOME }.map { it.id }.toSet()
-                // Salary paid a few days early belongs to the period it is meant for.
-                val txs = loaded.filter { t ->
-                    val date = Instant.ofEpochMilli(t.timestampMillis).atZone(zone).toLocalDate()
-                    val isIncome = t.amountCzkMinor > 0 && t.categoryId in incomeIds
-                    BudgetPeriods.belongsTo(date, isIncome, period, settings)
-                }
-                val summary = BudgetEngine.summarize(categories, txs)
-                val isCurrent = o == 0
-                val reserve = if (accounts.isEmpty() || !isCurrent) {
-                    null
-                } else {
-                    ReserveCalculator.status(
-                        liquidMinor = ReserveCalculator.liquidTotal(accounts, balances),
-                        floorMinor = floor,
-                        remainingPlannedOutflowMinor = summary.remainingPlannedOutflowMinor,
-                    )
-                }
-                BudgetUiState(period, isCurrent, true, summary, reserve, txs, categories, accounts)
+    val state: StateFlow<BudgetUiState> = offset.flatMapLatest { o ->
+        combine(
+            finance.periodView(o),
+            finance.accounts,
+            finance.accountBalances,
+            finance.reserveFloorMinor,
+        ) { view, accounts, balances, floor ->
+            val summary = BudgetEngine.summarize(view.categories, view.transactions)
+            val reserve = if (accounts.isEmpty() || !view.isCurrent) {
+                null
+            } else {
+                ReserveCalculator.status(
+                    liquidMinor = ReserveCalculator.liquidTotal(accounts, balances),
+                    floorMinor = floor,
+                    remainingPlannedOutflowMinor = summary.remainingPlannedOutflowMinor,
+                )
             }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BudgetUiState())
+            BudgetUiState(view.period, view.isCurrent, true, summary, reserve, view.transactions, view.categories, accounts)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BudgetUiState())
+
+    /** Shown period relative to the current one (for opening drill-downs on the same period). */
+    val periodOffset: Int get() = offset.value
 
     fun previousMonth() {
         offset.value -= 1

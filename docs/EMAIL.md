@@ -97,7 +97,7 @@ balance, set *Top-up names* to `REVOLUT`, and map the Revolut app to it under
 
 - Only e-mails containing an amount are looked at. Senders you haven't enabled
   are only counted.
-- The capture log keeps what happened to each message for 7 days, encrypted.
+- The capture log keeps what happened to each message for 1 year, encrypted.
   You can switch it off.
 - The App Password lives in the Android Keystore vault, like the Trading 212 key.
   To revoke access, delete the App Password at myaccount.google.com/apppasswords.

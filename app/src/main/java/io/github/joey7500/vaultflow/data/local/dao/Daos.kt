@@ -89,6 +89,9 @@ interface TransactionDao {
     @Query("DELETE FROM transactions")
     suspend fun deleteAll()
 
+    @Query("SELECT * FROM transactions WHERE accountId = :accountId AND timestampMillis >= :since ORDER BY timestampMillis DESC")
+    fun observeForAccount(accountId: Long, since: Long): Flow<List<TransactionEntity>>
+
     @Query("SELECT COALESCE(SUM(amountCzkMinor), 0) FROM transactions WHERE accountId = :accountId AND timestampMillis > :after AND timestampMillis <= :upTo")
     suspend fun sumForAccount(accountId: Long, after: Long, upTo: Long): Long
 

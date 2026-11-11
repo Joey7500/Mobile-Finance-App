@@ -251,7 +251,7 @@ fun SettingsScreen(onRestartRequested: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Capture log", style = MaterialTheme.typography.titleMedium)
-                    Text("What happened to each captured notification (kept 7 days, encrypted).", style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
+                    Text("What happened to each captured notification or e-mail (kept 1 year, encrypted).", style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
                 }
                 Switch(checked = state.captureLogEnabled, onCheckedChange = vm::setCaptureLog)
             }
@@ -262,7 +262,10 @@ fun SettingsScreen(onRestartRequested: () -> Unit) {
                     Text("→ ${e.outcome}", style = MaterialTheme.typography.bodySmall, color = if (e.outcome.startsWith("skipped")) VaultColors.Amber else VaultColors.Emerald)
                 }
             }
-            if (state.log.isNotEmpty()) TextButton(onClick = vm::clearLog) { Text("Clear log") }
+            Row {
+                TextButton(onClick = vm::mergeDuplicates) { Text("Find & merge duplicates") }
+                if (state.log.isNotEmpty()) TextButton(onClick = vm::clearLog) { Text("Clear log") }
+            }
         }
 
         // ───────── Rules & categories ─────────

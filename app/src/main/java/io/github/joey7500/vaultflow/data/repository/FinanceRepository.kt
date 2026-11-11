@@ -15,6 +15,7 @@ import io.github.joey7500.vaultflow.domain.budget.ReserveCalculator
 import io.github.joey7500.vaultflow.domain.classify.Classifier
 import io.github.joey7500.vaultflow.data.local.entity.ProcessedMessageEntity
 import io.github.joey7500.vaultflow.domain.ingest.BalanceObservation
+import io.github.joey7500.vaultflow.domain.ingest.DuplicateRepair
 import io.github.joey7500.vaultflow.domain.ingest.IncomingMessage
 import io.github.joey7500.vaultflow.domain.ingest.IngestContext
 import io.github.joey7500.vaultflow.domain.ingest.IngestionPipeline
@@ -28,7 +29,12 @@ import io.github.joey7500.vaultflow.domain.model.ManualAsset
 import io.github.joey7500.vaultflow.domain.model.RuleMatch
 import io.github.joey7500.vaultflow.domain.model.Transaction
 import io.github.joey7500.vaultflow.domain.text.TextNormalizer
+import io.github.joey7500.vaultflow.domain.budget.BudgetPeriod
+import io.github.joey7500.vaultflow.domain.budget.BudgetPeriods
 import io.github.joey7500.vaultflow.domain.budget.PeriodSettings
+import java.time.Instant
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flatMapLatest
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
@@ -37,6 +43,13 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+
+data class PeriodView(
+    val period: BudgetPeriod,
+    val isCurrent: Boolean,
+    val transactions: List<Transaction>,
+    val categories: List<Category>,
+)
 
 /** Everything about the monthly budget, accounts and captured transactions. */
 class FinanceRepository(
@@ -80,6 +93,26 @@ class FinanceRepository(
     suspend fun setPeriodSettings(startDay: Int, graceDays: Int) {
         settings.put(SettingsStore.PERIOD_START_DAY, startDay.coerceIn(1, 28).toString())
         settings.put(SettingsStore.INCOME_GRACE_DAYS, graceDays.coerceIn(0, 10).toString())
+    }
+
+    /**
+     * The transactions that belong to a budget period ([offset] 0 = current), with income
+     * paid a few days early pulled into the period it funds. Budget tab and drill-down
+     * pages both use this, so their numbers always agree.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun periodView(offset: Int): Flow<PeriodView> = periodSettings.flatMapLatest { settings ->
+        val current = BudgetPeriods.containing(LocalDate.now(zone), settings)
+        val period = BudgetPeriods.shift(current, offset, settings)
+        val (from, to) = BudgetPeriods.queryRange(period, settings)
+        combine(categories, transactionsBetween(from, to)) { cats, loaded ->
+            val incomeIds = cats.filter { it.kind == FlowKind.INCOME }.map { it.id }.toSet()
+            val txs = loaded.filter { t ->
+                val date = Instant.ofEpochMilli(t.timestampMillis).atZone(zone).toLocalDate()
+                BudgetPeriods.belongsTo(date, t.amountCzkMinor > 0 && t.categoryId in incomeIds, period, settings)
+            }
+            PeriodView(period, offset == 0, txs, cats)
+        }
     }
 
     /** Transactions with dates in [from, toExclusive). */
@@ -281,6 +314,27 @@ class FinanceRepository(
         return KNOWN_BANK_MAIL_DOMAINS.any { domain == it || domain.endsWith(".$it") }
     }
 
+    /** Every transaction of one account since [since] (newest first). */
+    fun transactionsForAccount(accountId: Long, since: Long): Flow<List<Transaction>> =
+        db.transactions().observeForAccount(accountId, since).map { list -> list.map { it.toDomain() } }
+
+    /**
+     * Folds stored Wallet-only duplicates into the bank-confirmed payment (see
+     * DuplicateRepair). Returns how many duplicate records were removed.
+     */
+    suspend fun repairDuplicates(): Int = ingestMutex.withLock {
+        val since = System.currentTimeMillis() - 400L * 24 * 3600 * 1000
+        val all = db.transactions().getSince(since).map { it.toDomain() }
+        val fixes = DuplicateRepair.find(all)
+        db.withTransaction {
+            fixes.forEach { fix ->
+                db.transactions().update(fix.keep.toEntity())
+                fix.remove.forEach { db.transactions().delete(it.id) }
+            }
+        }
+        fixes.sumOf { it.remove.size }
+    }
+
     suspend fun processedMessage(key: String) = db.processedMessages().get(key)
 
     suspend fun isSenderEnabled(key: String): Boolean = db.senders().get(key)?.enabled ?: defaultEnabled(key)
@@ -297,7 +351,7 @@ class FinanceRepository(
     }
 
     companion object {
-        const val CAPTURE_LOG_RETENTION_MS = 7L * 24 * 3600 * 1000
+        const val CAPTURE_LOG_RETENTION_MS = 365L * 24 * 3600 * 1000
         val KNOWN_BANK_MAIL_DOMAINS = listOf(
             "csas.cz", "kb.cz", "csob.cz", "fio.cz", "airbank.cz", "moneta.cz", "rb.cz", "unicreditgroup.cz",
             "mbank.cz", "equabank.cz", "creditas.cz", "partners.cz", "revolut.com",

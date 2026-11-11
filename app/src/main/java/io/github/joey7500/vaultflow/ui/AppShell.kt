@@ -1,5 +1,6 @@
 package io.github.joey7500.vaultflow.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
@@ -23,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -36,7 +39,10 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.joey7500.vaultflow.VaultFlowApp
 import io.github.joey7500.vaultflow.di.AppContainer
+import io.github.joey7500.vaultflow.ui.accounts.AccountDetailScreen
+import io.github.joey7500.vaultflow.ui.accounts.AccountsScreen
 import io.github.joey7500.vaultflow.ui.budget.BudgetScreen
+import io.github.joey7500.vaultflow.ui.detail.TransactionListScreen
 import io.github.joey7500.vaultflow.ui.settings.SettingsScreen
 import io.github.joey7500.vaultflow.ui.theme.VaultColors
 import io.github.joey7500.vaultflow.ui.wealth.WealthScreen
@@ -54,15 +60,19 @@ inline fun <reified VM : ViewModel> containerViewModel(crossinline create: (AppC
     return viewModel(factory = viewModelFactory { initializer { create(container) } })
 }
 
-private enum class Tab(val label: String) { BUDGET("Budget"), WEALTH("Wealth"), SETTINGS("Settings") }
+private enum class Tab(val label: String) { BUDGET("Budget"), ACCOUNTS("Accounts"), WEALTH("Wealth"), SETTINGS("Settings") }
 
 @Composable
 fun AppShell(onRestartRequested: () -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    // Stack of opened detail pages (category lists, account detail); back pops one.
+    val details = remember { mutableStateListOf<Detail>() }
+    val navigator = remember { Navigator { details.add(it) } }
+    BackHandler(enabled = details.isNotEmpty()) { details.removeAt(details.lastIndex) }
     val snackbar = remember { SnackbarHostState() }
     val isDemo = appContainer().isDemo
 
-    CompositionLocalProvider(LocalSnackbar provides snackbar) {
+    CompositionLocalProvider(LocalSnackbar provides snackbar, LocalNavigator provides navigator) {
         Scaffold(
             containerColor = VaultColors.Background,
             snackbarHost = { SnackbarHost(snackbar) },
@@ -71,11 +81,12 @@ fun AppShell(onRestartRequested: () -> Unit) {
                     Tab.entries.forEachIndexed { i, t ->
                         NavigationBarItem(
                             selected = tab == i,
-                            onClick = { tab = i },
+                            onClick = { tab = i; details.clear() },
                             icon = {
                                 Icon(
                                     when (t) {
                                         Tab.BUDGET -> Icons.Filled.DateRange
+                                        Tab.ACCOUNTS -> Icons.Filled.AccountBox
                                         Tab.WEALTH -> Icons.Filled.Star
                                         Tab.SETTINGS -> Icons.Filled.Settings
                                     },
@@ -99,10 +110,16 @@ fun AppShell(onRestartRequested: () -> Unit) {
                     )
                 }
                 Box(Modifier.fillMaxSize()) {
-                    when (Tab.entries[tab]) {
-                        Tab.BUDGET -> BudgetScreen()
-                        Tab.WEALTH -> WealthScreen()
-                        Tab.SETTINGS -> SettingsScreen(onRestartRequested)
+                    val top = details.lastOrNull()
+                    when {
+                        top is Detail.Transactions -> TransactionListScreen(top) { details.removeAt(details.lastIndex) }
+                        top is Detail.AccountDetail -> AccountDetailScreen(top.accountId) { details.removeAt(details.lastIndex) }
+                        else -> when (Tab.entries[tab]) {
+                            Tab.BUDGET -> BudgetScreen()
+                            Tab.ACCOUNTS -> AccountsScreen()
+                            Tab.WEALTH -> WealthScreen()
+                            Tab.SETTINGS -> SettingsScreen(onRestartRequested)
+                        }
                     }
                 }
             }

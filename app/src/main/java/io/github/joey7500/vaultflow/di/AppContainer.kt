@@ -47,7 +47,16 @@ class AppContainer(context: Context) {
     /** Safe to call many times; seeds defaults (or demo data) once. */
     suspend fun initialize() = initLock.withLock {
         if (initialized) return@withLock
-        if (isDemo) DemoSeeder.seed(db, finance, settings) else finance.ensureSeeded()
+        if (isDemo) {
+            DemoSeeder.seed(db, finance, settings)
+        } else {
+            finance.ensureSeeded()
+            // One-time clean-up of Wallet re-post duplicates stored by earlier versions.
+            if (settings.get(SettingsStore.DUPLICATE_REPAIR_DONE) == null) {
+                runCatching { finance.repairDuplicates() }
+                settings.put(SettingsStore.DUPLICATE_REPAIR_DONE, "done")
+            }
+        }
         initialized = true
     }
 

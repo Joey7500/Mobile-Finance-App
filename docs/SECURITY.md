@@ -11,7 +11,7 @@ on your phone or in a git-ignored file on your PC.
 | Trading 212 API key + secret | Typed into the app → encrypted with the phone's hardware **Android Keystore** | No: not in code, Gradle, BuildConfig, logs or backups |
 | Gmail address + App Password | Same Keystore vault; IMAP read-only. Revoke at myaccount.google.com/apppasswords | No |
 | Transactions, balances, budgets, rules, own account digits | **SQLCipher** AES-256 database on the phone; its key is wrapped by the Keystore | No |
-| Raw notification text (capture log) | Same encrypted DB, auto-deleted after 7 days, can be switched off | No |
+| Raw notification text (capture log) | Same encrypted DB, auto-deleted after 1 year, can be switched off or cleared | No |
 | Release signing key `*.jks` | Your PC, **outside** the repo folder + password manager backup | No: `.gitignore` + pre-commit hook block `*.jks` |
 | `keystore.properties` (signing passwords) | Repo root on your PC | No: git-ignored + hook blocks it |
 | `local.properties` (SDK path) | Repo root on your PC, created by Android Studio | No: git-ignored + hook blocks it |

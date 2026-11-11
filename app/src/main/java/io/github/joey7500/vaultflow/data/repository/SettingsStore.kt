@@ -55,6 +55,7 @@ class SettingsStore(private val dao: SettingDao) {
         const val CAPTURE_LOG_ENABLED = "capture_log_enabled"
         const val EMAIL_LAST_SYNC_AT = "email_last_sync_at"
         const val PERIOD_START_DAY = "period_start_day"
+        const val DUPLICATE_REPAIR_DONE = "duplicate_repair_v1"
         const val INCOME_GRACE_DAYS = "income_grace_days"
         const val EMAIL_LAST_RESULT = "email_last_result"
     }

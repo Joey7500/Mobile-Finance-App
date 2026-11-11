@@ -45,7 +45,13 @@ import io.github.joey7500.vaultflow.domain.budget.ReserveStatus
 import io.github.joey7500.vaultflow.domain.model.FlowKind
 import io.github.joey7500.vaultflow.domain.model.Transaction
 import io.github.joey7500.vaultflow.domain.model.TransactionStatus
+import io.github.joey7500.vaultflow.ui.Detail
+import io.github.joey7500.vaultflow.ui.KindFilter
+import io.github.joey7500.vaultflow.ui.LocalNavigator
 import io.github.joey7500.vaultflow.ui.LocalSnackbar
+import io.github.joey7500.vaultflow.ui.TxFilter
+import io.github.joey7500.vaultflow.ui.common.TransactionDialog
+import io.github.joey7500.vaultflow.ui.common.TransactionRow
 import io.github.joey7500.vaultflow.ui.components.BudgetBar
 import io.github.joey7500.vaultflow.ui.components.CategoryList
 import io.github.joey7500.vaultflow.ui.components.CheckRow
@@ -75,7 +81,10 @@ fun BudgetScreen() {
     LaunchedEffect(vm) { vm.messages.collect { snackbar.showSnackbar(it) } }
 
     var editTx by remember { mutableStateOf<Transaction?>(null) }
-    var editLine by remember { mutableStateOf<CategoryLine?>(null) }
+    val navigator = LocalNavigator.current
+    fun openCategory(c: io.github.joey7500.vaultflow.domain.model.Category) =
+        navigator.open(Detail.Transactions(TxFilter.Category(c.id, c.name, c.isUncertain), vm.periodOffset))
+    fun openKind(k: KindFilter) = navigator.open(Detail.Transactions(TxFilter.Kind(k), vm.periodOffset))
     var adding by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
@@ -97,9 +106,9 @@ fun BudgetScreen() {
             state.summary?.let { s ->
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatTile("INCOME", money(s.incomeMinor), VaultColors.Emerald, Modifier.weight(1f))
-                        StatTile("SPENT", money(s.expensesMinor), VaultColors.Text, Modifier.weight(1f))
-                        StatTile("INVESTED", money(s.investmentsMinor), VaultColors.Sky, Modifier.weight(1f))
+                        StatTile("INCOME ›", money(s.incomeMinor), VaultColors.Emerald, Modifier.weight(1f).clickable { openKind(KindFilter.INCOME) })
+                        StatTile("SPENT ›", money(s.expensesMinor), VaultColors.Text, Modifier.weight(1f).clickable { openKind(KindFilter.SPENT) })
+                        StatTile("INVESTED ›", money(s.investmentsMinor), VaultColors.Sky, Modifier.weight(1f).clickable { openKind(KindFilter.INVESTED) })
                     }
                     Spacer(Modifier.height(6.dp))
                     LabeledRow("Net cash flow this period", money(s.netCashFlowMinor), moneyColor(s.netCashFlowMinor))
@@ -121,7 +130,9 @@ fun BudgetScreen() {
                         Text("Tap to assign. Tick \"always\" and VaultFlow learns the merchant.", style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
                         Spacer(Modifier.height(6.dp))
                         uncertain.take(6).forEach { tx -> TransactionRow(tx, "Uncertain") { editTx = tx } }
-                        if (uncertain.size > 6) Text("+ ${uncertain.size - 6} more below", style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
+                        state.categories.firstOrNull { it.isUncertain }?.let { u ->
+                            TextButton(onClick = { openCategory(u) }) { Text(if (uncertain.size > 6) "See all ${uncertain.size} ›" else "Open list ›") }
+                        }
                     }
                 }
             }
@@ -134,7 +145,7 @@ fun BudgetScreen() {
                     item(key = "group-$group") {
                         GlassCard {
                             Text(group, style = MaterialTheme.typography.titleMedium)
-                            lines.forEach { line -> CategoryLineRow(line) { editLine = line } }
+                            lines.forEach { line -> CategoryLineRow(line) { openCategory(line.category) } }
                         }
                     }
                 }
@@ -164,14 +175,12 @@ fun BudgetScreen() {
     editTx?.let { tx ->
         TransactionDialog(
             tx = tx,
-            state = state,
+            categories = state.categories,
+            accounts = state.accounts,
             onAssign = { catId, learn -> vm.assign(tx, catId, learn); editTx = null },
             onDelete = { vm.delete(tx); editTx = null },
             onDismiss = { editTx = null },
         )
-    }
-    editLine?.let { line ->
-        BudgetDialog(line, onSave = { vm.setBudget(line.category.id, it); editLine = null }, onDismiss = { editLine = null })
     }
     if (adding) {
         AddTransactionDialog(
@@ -219,7 +228,7 @@ private fun CategoryLineRow(line: CategoryLine, onClick: () -> Unit) {
     val isIncome = line.category.kind == FlowKind.INCOME
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(line.category.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text(line.category.name + " ›", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             Text(
                 money(line.actualMinor) + if (line.budgetMinor > 0) " / " + money(line.budgetMinor) else "",
                 style = MaterialTheme.typography.bodySmall,
@@ -229,81 +238,6 @@ private fun CategoryLineRow(line: CategoryLine, onClick: () -> Unit) {
         Spacer(Modifier.height(6.dp))
         BudgetBar(line.progress, line.isOverBudget, color = if (isIncome) VaultColors.Emerald else if (line.category.kind == FlowKind.INVESTMENT) VaultColors.Sky else VaultColors.Violet)
     }
-}
-
-@Composable
-private fun TransactionRow(tx: Transaction, categoryName: String, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(tx.merchant, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
-                formatDateTime(tx.timestampMillis) + " · " + categoryName + (if (tx.status == TransactionStatus.PENDING) " · pending" else "") +
-                    evidenceLabel(tx.evidence).let { if (it.isBlank()) "" else " · $it" },
-                style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted, maxLines = 1,
-            )
-        }
-        Spacer(Modifier.width(8.dp))
-        Column(horizontalAlignment = Alignment.End) {
-            Text(money(tx.amountCzkMinor, decimals = true), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = moneyColor(tx.amountCzkMinor))
-            if (tx.currency != "CZK") Text(money(tx.amountMinor, true).replace("Kč", tx.currency), style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
-        }
-    }
-}
-
-@Composable
-private fun TransactionDialog(
-    tx: Transaction,
-    state: BudgetUiState,
-    onAssign: (Long, Boolean) -> Unit,
-    onDelete: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var learn by remember { mutableStateOf(tx.categoryId == null) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(tx.merchant, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        text = {
-            Column {
-                Text(money(tx.amountCzkMinor, true) + " · " + formatDateTime(tx.timestampMillis), color = moneyColor(tx.amountCzkMinor))
-                Text(
-                    "Account: " + (state.accounts.firstOrNull { it.id == tx.accountId }?.name ?: "none") +
-                        evidenceLabel(tx.evidence).let { if (it.isBlank()) "" else " · $it" },
-                    style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
-                )
-                if (tx.note.isNotBlank()) Text(tx.note, style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
-                Spacer(Modifier.height(8.dp))
-                CheckRow(learn, { learn = it }, "Always classify this merchant like this")
-                CategoryList(state.categories, tx.categoryId) { onAssign(it.id, learn) }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-        dismissButton = { TextButton(onClick = onDelete) { Text("Delete", color = VaultColors.Rose) } },
-    )
-}
-
-@Composable
-private fun BudgetDialog(line: CategoryLine, onSave: (Long) -> Unit, onDismiss: () -> Unit) {
-    var text by remember { mutableStateOf(minorToInput(line.budgetMinor)) }
-    val parsed = parseMoneyInput(text)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(line.category.name) },
-        text = {
-            Column {
-                Text(
-                    if (line.category.kind == FlowKind.INCOME) "Expected income per period" else "Budget per period",
-                    style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
-                )
-                Spacer(Modifier.height(8.dp))
-                MoneyField(text, { text = it }, "Amount")
-            }
-        },
-        confirmButton = { TextButton(enabled = parsed != null, onClick = { parsed?.let(onSave) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }
 
 @Composable

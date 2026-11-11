@@ -186,6 +186,11 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     }
     fun clearLog() = viewModelScope.launch { c.finance.clearCaptureLog() }
 
+    fun mergeDuplicates() = viewModelScope.launch {
+        val n = c.finance.repairDuplicates()
+        say(if (n == 0) "No duplicates found" else "Merged $n duplicate Wallet report(s)")
+    }
+
     // ── Rules & categories ──
     fun deleteRule(rule: ClassificationRule) = viewModelScope.launch { c.finance.deleteRule(rule.id) }
     fun addCategory(name: String, group: String, kind: FlowKind) = viewModelScope.launch {
