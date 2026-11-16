@@ -143,7 +143,7 @@ use your own release key:
 
 1. **Create a keystore** (once): Android Studio → **Build → Generate Signed
    App Bundle / APK…** → **APK** → *Create new…*
-   - Key store path: **outside the project**, e.g. `C:\Users\josef\keys\vaultflow-release.jks`
+   - Key store path: **outside the project**, e.g. `C:\keys\vaultflow-release.jks`
    - Choose passwords, alias `vaultflow`, validity 25+ years, fill in your name.
    - **Back up the .jks file and the passwords** (password manager + a USB
      stick). Lose them = you can never update the app again without wiping it.
