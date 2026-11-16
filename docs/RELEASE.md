@@ -47,7 +47,7 @@ notepad keystore.properties
 Fill in (forward slashes in the path):
 
 ```properties
-storeFile=C:/Users/josef/keys/vaultflow-release.jks
+storeFile=C:keys/vaultflow-release.jks
 storePassword=<the password from step 1>
 keyAlias=vaultflow
 keyPassword=<the same password>
