@@ -56,7 +56,7 @@ Only needed if you want GitHub to build signed release APKs
 1. Create your keystore first (SETUP.md, Part 6).
 2. Convert it to text and copy it to the clipboard (PowerShell):
    ```powershell
-   [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\Users\josef\keys\vaultflow-release.jks")) | Set-Clipboard
+   [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\keys\vaultflow-release.jks")) | Set-Clipboard
    ```
 3. GitHub → your repo → **Settings → Secrets and variables → Actions → New repository secret**.
    Create these four:
