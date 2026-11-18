@@ -61,7 +61,10 @@ class ClassifierTest {
     }
 
     @Test fun `learned pattern drops tokens with digits`() {
-        assertEquals("ALBERT BRNO", Classifier.learnedPattern("Albert 0123 Brno"))
+        // Since 1.2.0 the canonical merchant is learned: the trailing city goes too, so one
+        // rule covers every branch ("ALBERT", not "ALBERT BRNO").
+        assertEquals("ALBERT", Classifier.learnedPattern("Albert 0123 Brno"))
+        assertEquals("ALBERT HYPERMARKET", Classifier.learnedPattern("Albert 0123 Hypermarket"))
         assertNull(Classifier.learnedPattern("12345"))
     }
 

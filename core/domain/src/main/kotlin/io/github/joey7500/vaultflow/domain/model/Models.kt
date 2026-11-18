@@ -136,7 +136,16 @@ enum class ManualAssetKind { BUILDING_SAVINGS, OTHER }
 
 enum class RuleMatch { CONTAINS, EXACT }
 
-/** A learned or user-written classification rule (Tier 1). */
+/** Where a rule came from; decides its priority and confidence. */
+enum class RuleOrigin {
+    /** You ticked "Always classify this merchant like this". Highest priority, always trusted. */
+    USER,
+
+    /** Learned from your manual corrections without "always": trusted once you repeated it. */
+    LEARNED,
+}
+
+/** A classification rule: yours ("always") or learned from your corrections. */
 data class ClassificationRule(
     val id: Long,
     /** Normalised (upper-case, no diacritics) pattern. */
@@ -144,4 +153,7 @@ data class ClassificationRule(
     val match: RuleMatch,
     val categoryId: Long,
     val createdAtMillis: Long,
+    val origin: RuleOrigin = RuleOrigin.USER,
+    /** How many times you filed this merchant under this category (LEARNED rules). */
+    val hits: Int = 1,
 )

@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -142,6 +143,33 @@ fun BudgetScreen() {
                         state.categories.firstOrNull { it.isUncertain }?.let { u ->
                             TextButton(onClick = { openCategory(u) }) { Text(if (uncertain.size > 6) "See all ${uncertain.size} ›" else "Open list ›") }
                         }
+                    }
+                }
+            }
+
+            val toReview = state.toReview
+            if (toReview.isNotEmpty()) {
+                item(key = "quick-review") {
+                    GlassCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Quick review", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                            Pill("${toReview.size}", VaultColors.Sky)
+                        }
+                        Text(
+                            "VaultFlow guessed these categories. ✓ if right, tap the payment to change it. Confirming the same merchant twice teaches it.",
+                            style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        toReview.take(8).forEach { tx ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.weight(1f)) { TransactionRow(tx, state.categoryName(tx.categoryId) + "?") { editTx = tx } }
+                                IconButton(onClick = { vm.confirm(tx) }) { Icon(Icons.Filled.Check, "Category is right", tint = VaultColors.Emerald) }
+                            }
+                        }
+                        if (toReview.size > 8) {
+                            Text("+ ${toReview.size - 8} more", style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
+                        }
+                        TextButton(onClick = { vm.confirmAll(toReview) }) { Text("All ${toReview.size} are right ✓") }
                     }
                 }
             }

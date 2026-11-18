@@ -5,6 +5,7 @@ import io.github.joey7500.vaultflow.domain.fx.FxRates
 import io.github.joey7500.vaultflow.domain.model.Account
 import io.github.joey7500.vaultflow.domain.model.CategoryKeys
 import io.github.joey7500.vaultflow.domain.model.ClassificationRule
+import io.github.joey7500.vaultflow.domain.model.FlowKind
 import io.github.joey7500.vaultflow.domain.model.Transaction
 import io.github.joey7500.vaultflow.domain.model.TransactionSource
 import io.github.joey7500.vaultflow.domain.model.TransactionStatus
@@ -35,6 +36,8 @@ data class IngestContext(
     /** Latest ČNB rates for converting foreign-currency spend. */
     val fx: FxRates?,
     val zone: ZoneId = ZoneId.systemDefault(),
+    /** Kind of each category id (lets the classifier spot a rule that contradicts the money direction). */
+    val categoryKindById: Map<Long, FlowKind> = emptyMap(),
 )
 
 /** "The bank says account X held Y at time T." Used to check and re-anchor the balance. */
@@ -105,11 +108,13 @@ object IngestionPipeline {
             else -> parsed.merchant
         }
 
-        val classification = Classifier(ctx.rules)
-            .classify(merchant, listOfNotNull(msg.title, msg.text).joinToString(" "), parsed.amountMinor)
+        val classification = Classifier(ctx.rules, categoryKinds = ctx.categoryKindById)
+            .classify(merchant, listOfNotNull(msg.title, msg.text).joinToString(" "), parsed.amountMinor, sourceAccount?.type)
+        // Confident results and suggestions both get their category; a suggestion keeps its low
+        // confidence so it shows up under "Quick review" instead of silently counting as certain.
         val categoryId = when {
             counterparty != null -> transferId
-            !classification.isConfident -> null
+            classification.confidence <= 0.0 -> null
             classification.categoryId != null -> classification.categoryId
             else -> classification.categoryKey?.let(ctx.categoryIdByKey::get)
         }
@@ -142,7 +147,11 @@ object IngestionPipeline {
                 counterparty != null -> 1.0
                 else -> classification.confidence
             },
-            note = if (counterparty != null) "transfer between your accounts" else classification.reason,
+            note = when {
+                counterparty != null -> "transfer between your accounts"
+                categoryId != null && classification.isSuggestion -> "check: " + classification.reason
+                else -> classification.reason
+            },
             sourcePackage = msg.sourceKey,
             fingerprint = fingerprint,
         )
@@ -163,7 +172,7 @@ object IngestionPipeline {
         } else {
             var merged = Deduplicator.merge(duplicate, candidate)
             if (counterparty != null && transferId != null && !isUserChoice(duplicate, transferId)) {
-                merged = merged.copy(categoryId = transferId, note = "transfer between your accounts")
+                merged = merged.copy(categoryId = transferId, confidence = 1.0, note = "transfer between your accounts")
             }
             main = merged
             updates += merged

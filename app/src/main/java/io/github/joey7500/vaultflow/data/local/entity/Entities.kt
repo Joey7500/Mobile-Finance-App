@@ -81,6 +81,12 @@ data class RuleEntity(
     val matchType: String,
     val categoryId: Long,
     val createdAtMillis: Long,
+    /** USER = "always" ticked, LEARNED = learned from corrections (v4). */
+    @ColumnInfo(defaultValue = "'USER'")
+    val origin: String = "USER",
+    /** Consistent corrections behind a LEARNED rule (v4). */
+    @ColumnInfo(defaultValue = "1")
+    val hits: Int = 1,
 )
 
 @Serializable

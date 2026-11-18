@@ -144,7 +144,14 @@ object Deduplicator {
             else -> minOf(existing.timestampMillis, incoming.timestampMillis)
         }
         val primary = if (existing.source == INFERRED && incoming.source != INFERRED) incoming.source else existing.source
+        // The category comes from the more confident report; a choice you made always stays.
         val userChose = existing.confidence >= 1.0 && existing.categoryId != null
+        val categorySource = when {
+            userChose || incoming.categoryId == null -> existing
+            existing.categoryId == null -> incoming
+            incoming.confidence > existing.confidence -> incoming
+            else -> existing
+        }
         return existing.copy(
             timestampMillis = timestamp,
             amountMinor = amountSource.amountMinor,
@@ -152,8 +159,8 @@ object Deduplicator {
             amountCzkMinor = amountSource.amountCzkMinor,
             merchant = merchantSource.merchant,
             accountId = existing.accountId ?: incoming.accountId,
-            categoryId = if (userChose) existing.categoryId else (existing.categoryId ?: incoming.categoryId),
-            confidence = maxOf(existing.confidence, incoming.confidence),
+            categoryId = categorySource.categoryId,
+            confidence = if (categorySource.categoryId == null) maxOf(existing.confidence, incoming.confidence) else categorySource.confidence,
             source = primary,
             status = if (EMAIL in evidence || BANK_NOTIFICATION in evidence) TransactionStatus.SETTLED else existing.status,
             sourcePackage = existing.sourcePackage ?: incoming.sourcePackage,

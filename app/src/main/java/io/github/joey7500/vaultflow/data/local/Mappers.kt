@@ -13,6 +13,7 @@ import io.github.joey7500.vaultflow.domain.model.FlowKind
 import io.github.joey7500.vaultflow.domain.model.ManualAsset
 import io.github.joey7500.vaultflow.domain.model.ManualAssetKind
 import io.github.joey7500.vaultflow.domain.model.RuleMatch
+import io.github.joey7500.vaultflow.domain.model.RuleOrigin
 import io.github.joey7500.vaultflow.domain.model.Transaction
 import io.github.joey7500.vaultflow.domain.model.TransactionSource
 import io.github.joey7500.vaultflow.domain.model.TransactionStatus
@@ -56,6 +57,13 @@ fun AccountEntity.toDomain() = Account(
 fun RuleEntity.toDomain() = ClassificationRule(
     id = id, pattern = pattern, match = enumOr(matchType, RuleMatch.CONTAINS), categoryId = categoryId,
     createdAtMillis = createdAtMillis,
+    origin = enumOr(origin, RuleOrigin.USER),
+    hits = hits,
+)
+
+fun ClassificationRule.toEntity() = RuleEntity(
+    id = id, pattern = pattern, matchType = match.name, categoryId = categoryId,
+    createdAtMillis = createdAtMillis, origin = origin.name, hits = hits,
 )
 
 fun ManualAssetEntity.toDomain() = ManualAsset(

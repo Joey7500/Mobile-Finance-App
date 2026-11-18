@@ -42,7 +42,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         SettingEntity::class,
         ProcessedMessageEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class VaultDatabase : RoomDatabase() {
@@ -83,6 +83,14 @@ abstract class VaultDatabase : RoomDatabase() {
             }
         }
 
+        /** v3 -> v4: rules learned from corrections (origin + hit count). Existing rules were all "always" rules. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE rules ADD COLUMN origin TEXT NOT NULL DEFAULT 'USER'")
+                db.execSQL("ALTER TABLE rules ADD COLUMN hits INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
         /**
          * The real vault: SQLCipher (AES-256) encrypted, keyed by a passphrase
          * wrapped in the hardware Keystore.
@@ -96,7 +104,7 @@ abstract class VaultDatabase : RoomDatabase() {
             val factory = SupportOpenHelperFactory(DatabaseKeyManager(context).passphrase())
             return Room.databaseBuilder(context.applicationContext, VaultDatabase::class.java, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
         }
 

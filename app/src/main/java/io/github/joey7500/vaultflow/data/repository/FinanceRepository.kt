@@ -14,6 +14,7 @@ import io.github.joey7500.vaultflow.data.remote.CnbClient
 import io.github.joey7500.vaultflow.domain.budget.Overspend
 import io.github.joey7500.vaultflow.domain.budget.ReserveCalculator
 import io.github.joey7500.vaultflow.domain.classify.Classifier
+import io.github.joey7500.vaultflow.domain.classify.RuleLearning
 import io.github.joey7500.vaultflow.data.local.entity.ProcessedMessageEntity
 import io.github.joey7500.vaultflow.domain.ingest.BalanceObservation
 import io.github.joey7500.vaultflow.domain.ingest.DuplicateRepair
@@ -28,6 +29,7 @@ import io.github.joey7500.vaultflow.domain.model.DefaultCategories
 import io.github.joey7500.vaultflow.domain.model.FlowKind
 import io.github.joey7500.vaultflow.domain.model.ManualAsset
 import io.github.joey7500.vaultflow.domain.model.RuleMatch
+import io.github.joey7500.vaultflow.domain.model.RuleOrigin
 import io.github.joey7500.vaultflow.domain.model.Transaction
 import io.github.joey7500.vaultflow.domain.text.TextNormalizer
 import io.github.joey7500.vaultflow.domain.budget.BudgetPeriod
@@ -169,21 +171,35 @@ class FinanceRepository(
     suspend fun deleteTransaction(id: Long) = db.transactions().delete(id)
 
     /**
-     * Assigns a category. With [learn] = true an "always classify like this"
-     * rule is stored and applied to other uncategorised transactions from the
-     * same merchant. Returns the learned pattern, if any.
+     * Assigns a category and learns from it (see RuleLearning):
+     * [learn] = "always" ticked -> a rule you own, trusted immediately;
+     * otherwise the correction is remembered and trusted once repeated.
+     * A trusted rule is applied to other uncategorised or unconfirmed
+     * transactions of the same merchant. Returns the pattern when a rule
+     * became trusted, else null.
      */
     suspend fun assignCategory(txId: Long, categoryId: Long, learn: Boolean): String? = db.withTransaction {
         val tx = db.transactions().get(txId) ?: return@withTransaction null
         db.transactions().update(tx.copy(categoryId = categoryId, confidence = 1.0, note = "set by you"))
-        if (!learn) return@withTransaction null
-        val pattern = Classifier.learnedPattern(tx.merchant) ?: return@withTransaction null
-        db.rules().upsert(RuleEntity(pattern = pattern, matchType = RuleMatch.CONTAINS.name, categoryId = categoryId, createdAtMillis = System.currentTimeMillis()))
-        val since = System.currentTimeMillis() - 120L * 24 * 3600 * 1000
-        db.transactions().getSince(since)
-            .filter { it.categoryId == null && TextNormalizer.merchantKey(it.merchant).contains(pattern) }
-            .forEach { db.transactions().update(it.copy(categoryId = categoryId, confidence = 1.0, note = "your rule: \"$pattern\"")) }
-        pattern
+        val now = System.currentTimeMillis()
+        val rules = db.rules().getAll().map { it.toDomain() }
+        val rule = RuleLearning.onManualAssignment(rules, tx.merchant, categoryId, learn, now) ?: return@withTransaction null
+        db.rules().upsert(rule.toEntity())
+        if (!RuleLearning.isTrusted(rule)) return@withTransaction null
+
+        val matcher = Classifier(listOf(rule))
+        val confidence = if (rule.origin == RuleOrigin.USER) 1.0 else RuleLearning.confidence(rule.hits)
+        db.transactions().getSince(now - 120L * 24 * 3600 * 1000)
+            .filter { it.id != txId && (it.categoryId == null || it.confidence < Classifier.CONFIDENCE_THRESHOLD) && it.note != "set by you" }
+            .filter { matcher.classify(it.merchant, amountMinor = it.amountCzkMinor).categoryId == categoryId }
+            .forEach { db.transactions().update(it.copy(categoryId = categoryId, confidence = confidence, note = "your rule: \"${rule.pattern}\"")) }
+        rule.pattern
+    }
+
+    /** "Yes, that guess is right": confirms a suggested category and counts as a correction. */
+    suspend fun confirmCategory(tx: Transaction): String? {
+        val categoryId = tx.categoryId ?: return null
+        return assignCategory(tx.id, categoryId, learn = false)
     }
 
     // ───────────────────────── categories ─────────────────────────
@@ -262,6 +278,7 @@ class FinanceRepository(
             rules = db.rules().getAll().map { it.toDomain() },
             accounts = db.accounts().getAll().map { it.toDomain() },
             categoryIdByKey = categoryIds,
+            categoryKindById = db.categories().getAll().associate { it.id to it.toDomain().kind },
             // 4 days back: covers e-mail delays and interbank transfer counterparts.
             recentTransactions = db.transactions().getSince(msg.receivedAtMillis - 4L * 24 * 3600 * 1000).map { it.toDomain() },
             fx = fx,

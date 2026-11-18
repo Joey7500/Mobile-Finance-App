@@ -46,6 +46,18 @@ data class BudgetUiState(
             return transactions.filter { it.categoryId == null || it.categoryId == uncertainId || it.categoryId !in known }
         }
 
+    /** Categorised by a guess (weak keyword, first-time learned rule...): quick to confirm or change. */
+    val toReview: List<Transaction>
+        get() {
+            val uncertainId = categories.firstOrNull { it.isUncertain }?.id
+            val known = categories.map { it.id }.toSet()
+            return transactions.filter {
+                it.categoryId != null && it.categoryId != uncertainId && it.categoryId in known &&
+                    it.confidence > 0.0 && it.confidence < io.github.joey7500.vaultflow.domain.classify.Classifier.CONFIDENCE_THRESHOLD &&
+                    it.note != "set by you"
+            }
+        }
+
     fun categoryName(id: Long?): String = categories.firstOrNull { it.id == id }?.name ?: "Uncertain"
 }
 
@@ -95,6 +107,17 @@ class BudgetViewModel(private val finance: FinanceRepository) : ViewModel() {
     }
 
     fun setBudget(categoryId: Long, minor: Long) = viewModelScope.launch { finance.setBudget(categoryId, minor) }
+
+    /** The guessed category is right. Counts as a correction, so repeated confirmations teach a rule. */
+    fun confirm(tx: Transaction) = viewModelScope.launch {
+        val pattern = finance.confirmCategory(tx)
+        if (pattern != null) _messages.tryEmit("Learned: \"$pattern\" will be classified automatically")
+    }
+
+    fun confirmAll(txs: List<Transaction>) = viewModelScope.launch {
+        txs.forEach { finance.confirmCategory(it) }
+        _messages.tryEmit("Confirmed ${txs.size} categories")
+    }
 
     fun delete(tx: Transaction) = viewModelScope.launch {
         finance.deleteTransaction(tx.id)

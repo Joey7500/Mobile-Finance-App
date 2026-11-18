@@ -277,13 +277,22 @@ fun SettingsScreen(onRestartRequested: () -> Unit) {
         SectionLabel("Learned rules")
         GlassCard {
             if (state.rules.isEmpty()) {
-                Text("When you categorise a transaction with \"always\" ticked, the rule appears here.", style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
+                Text(
+                    "Rules appear here when you tick \"always\", or when you file the same merchant under the same category " +
+                        "twice (learned). A learned rule seen once is only a suggestion.",
+                    style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+                )
             }
             state.rules.forEach { r ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("\"${r.pattern}\"", style = MaterialTheme.typography.bodyMedium)
-                        Text("→ " + (state.categories.firstOrNull { it.id == r.categoryId }?.name ?: "deleted category"), style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
+                        val how = when {
+                            r.origin == io.github.joey7500.vaultflow.domain.model.RuleOrigin.USER -> "always"
+                            r.hits >= io.github.joey7500.vaultflow.domain.classify.RuleLearning.TRUSTED_HITS -> "learned · ${r.hits}×"
+                            else -> "suggestion · seen once"
+                        }
+                        Text("→ " + (state.categories.firstOrNull { it.id == r.categoryId }?.name ?: "deleted category") + " · " + how, style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
                     }
                     TextButton(onClick = { vm.deleteRule(r) }) { Text("Delete", color = VaultColors.Rose) }
                 }

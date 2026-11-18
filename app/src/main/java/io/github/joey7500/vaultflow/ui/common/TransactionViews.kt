@@ -69,7 +69,8 @@ fun TransactionDialog(
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var learn by remember { mutableStateOf(tx.categoryId == null) }
+    // Uncategorised or only guessed: offer to remember the choice by default.
+    var learn by remember { mutableStateOf(tx.categoryId == null || (tx.confidence < 0.8 && tx.note != "set by you")) }
     var confirmDelete by remember { mutableStateOf(false) }
     if (confirmDelete) {
         AlertDialog(

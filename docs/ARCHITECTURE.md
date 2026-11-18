@@ -7,7 +7,8 @@ VaultFlow/
 ├── core/domain/      Pure Kotlin. All business rules + unit tests. No Android.
 │   ├── budget/       BudgetEngine (budget vs actual), Reserve (balance-based floor)
 │   ├── ingest/       AmountParser, NotificationParser, Deduplicator, IngestionPipeline
-│   ├── classify/     Classifier (own accounts → learned rules → built-in merchants)
+│   ├── classify/     Classifier (own accounts → your rules → learned rules → dictionary → context),
+│   │                 MerchantNormalizer, CategoryDictionary, RuleLearning
 │   ├── wealth/       NetWorth pillars, GoldMath
 │   ├── fx/           ČNB daily-rate parser
 │   ├── backup/       BackupCrypto (PBKDF2 + AES-256-GCM)
@@ -54,6 +55,7 @@ flowchart LR
 | Accounts use an *anchor balance* | Notifications carry transactions, not balances. You confirm a balance once and the app adds captured transactions on top. Re-anchor any time. |
 | Dedup only across different apps | Wallet + bank report of one payment merge; two identical coffees from the same app don't. |
 | On-device classifier, no LLM | Transactions never leave the phone; $0 running cost. Learned rules cover the long tail. |
+| Guesses are applied but flagged | A result below 0.8 confidence keeps its category with low confidence and appears under *Quick review*; nothing matched = Uncertain. Two consistent corrections of a merchant make a trusted learned rule; "always" makes one immediately. |
 | Keystore AES-GCM instead of `security-crypto` | The Jetpack library is deprecated; the platform API is stable. |
 | DB key not biometric-bound | The listener has to write while the UI is locked. |
 | No destructive migrations | A schema change must never wipe financial history. Schemas are exported to `app/schemas/`. |
