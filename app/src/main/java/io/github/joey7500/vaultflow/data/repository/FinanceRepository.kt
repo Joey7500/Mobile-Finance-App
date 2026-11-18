@@ -11,6 +11,7 @@ import io.github.joey7500.vaultflow.data.local.entity.SenderEntity
 import io.github.joey7500.vaultflow.data.local.toDomain
 import io.github.joey7500.vaultflow.data.local.toEntity
 import io.github.joey7500.vaultflow.data.remote.CnbClient
+import io.github.joey7500.vaultflow.domain.budget.Overspend
 import io.github.joey7500.vaultflow.domain.budget.ReserveCalculator
 import io.github.joey7500.vaultflow.domain.classify.Classifier
 import io.github.joey7500.vaultflow.data.local.entity.ProcessedMessageEntity
@@ -72,6 +73,14 @@ class FinanceRepository(
             val byAccount = deltas.associate { it.accountId to it.total }
             accs.associate { it.id to it.anchorBalanceMinor + (byAccount[it.id] ?: 0L) }
         }
+
+    /** Over budget by this much or more = red; less = amber (Settings -> Budget tab). */
+    val overspendRedThresholdMinor: Flow<Long> = settings.all.map {
+        it[SettingsStore.OVERSPEND_RED_THRESHOLD_MINOR]?.toLongOrNull() ?: Overspend.DEFAULT_RED_THRESHOLD_MINOR
+    }
+
+    suspend fun setOverspendRedThreshold(minor: Long) =
+        settings.putLong(SettingsStore.OVERSPEND_RED_THRESHOLD_MINOR, minor.coerceAtLeast(0))
 
     val reserveFloorMinor: Flow<Long> = settings.all.map {
         it[SettingsStore.RESERVE_FLOOR_MINOR]?.toLongOrNull() ?: ReserveCalculator.DEFAULT_FLOOR_MINOR

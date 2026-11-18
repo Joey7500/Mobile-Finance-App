@@ -61,5 +61,6 @@ class SettingsStore(private val dao: SettingDao) {
         const val DRIVE_LAST_RESULT = "drive_last_result"
         const val INCOME_GRACE_DAYS = "income_grace_days"
         const val EMAIL_LAST_RESULT = "email_last_result"
+        const val OVERSPEND_RED_THRESHOLD_MINOR = "overspend_red_threshold_minor"
     }
 }

@@ -24,6 +24,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.joey7500.vaultflow.domain.budget.Overspend
+import io.github.joey7500.vaultflow.domain.budget.OverspendLevel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,6 +78,21 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     )
 }
 
+/** Amber when a little over budget, red when over by the threshold or more; null = not over. */
+fun overspendColor(level: OverspendLevel): Color? = when (level) {
+    OverspendLevel.NONE -> null
+    OverspendLevel.WARNING -> VaultColors.Amber
+    OverspendLevel.CRITICAL -> VaultColors.Rose
+}
+
+/** The red-threshold setting, live (defaults to 1 000 Kč until loaded). */
+@Composable
+fun rememberOverspendThreshold(): Long {
+    val finance = io.github.joey7500.vaultflow.ui.appContainer().finance
+    val threshold by finance.overspendRedThresholdMinor.collectAsStateWithLifecycle(Overspend.DEFAULT_RED_THRESHOLD_MINOR)
+    return threshold
+}
+
 fun money(minor: Long, decimals: Boolean = false): String = Money.format(minor, showDecimals = decimals)
 
 fun moneyColor(minor: Long): Color = when {
@@ -113,7 +132,7 @@ fun MoneyField(value: String, onValueChange: (String) -> Unit, label: String, mo
 
 /** Thin rounded progress bar; turns rose when over budget. */
 @Composable
-fun BudgetBar(progress: Float, over: Boolean, color: Color = VaultColors.Emerald, modifier: Modifier = Modifier) {
+fun BudgetBar(progress: Float, overColor: Color?, color: Color = VaultColors.Emerald, modifier: Modifier = Modifier) {
     val fill = progress.coerceIn(0f, 1f)
     Box(
         modifier
@@ -127,7 +146,7 @@ fun BudgetBar(progress: Float, over: Boolean, color: Color = VaultColors.Emerald
                 .fillMaxWidth(fill)
                 .height(6.dp)
                 .clip(RoundedCornerShape(3.dp))
-                .background(if (over) VaultColors.Rose else color),
+                .background(overColor ?: color),
         )
     }
 }

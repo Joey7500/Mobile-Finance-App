@@ -59,6 +59,7 @@ import io.github.joey7500.vaultflow.ui.components.DropdownChooser
 import io.github.joey7500.vaultflow.ui.components.GlassCard
 import io.github.joey7500.vaultflow.ui.components.LabeledRow
 import io.github.joey7500.vaultflow.ui.components.MoneyField
+import kotlinx.coroutines.launch
 import io.github.joey7500.vaultflow.ui.components.Pill
 import io.github.joey7500.vaultflow.ui.components.SectionLabel
 import io.github.joey7500.vaultflow.ui.components.formatDateTime
@@ -593,6 +594,26 @@ private fun BudgetTabCard() {
                 )
             }
             Switch(checked = show, onCheckedChange = prefs::setBudgetShowTransactions)
+        }
+        val finance = io.github.joey7500.vaultflow.ui.appContainer().finance
+        val threshold = io.github.joey7500.vaultflow.ui.components.rememberOverspendThreshold()
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        var input by remember(threshold) { mutableStateOf(minorToInput(threshold)) }
+        Spacer(Modifier.height(12.dp))
+        Text("Red when over budget by", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "A category over its budget by less than this is shown amber; by this amount or more it turns red. Default 1 000 Kč.",
+            style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            MoneyField(input, { input = it }, "Threshold", Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
+            val parsed = parseMoneyInput(input)
+            Button(
+                enabled = parsed != null && parsed >= 0 && parsed != threshold,
+                onClick = { parsed?.let { v -> scope.launch { finance.setOverspendRedThreshold(v) } } },
+            ) { Text("Save") }
         }
     }
 }

@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.joey7500.vaultflow.domain.budget.CategoryLine
 import io.github.joey7500.vaultflow.domain.budget.ReserveLevel
+import io.github.joey7500.vaultflow.domain.budget.overspendLevel
 import io.github.joey7500.vaultflow.domain.budget.ReserveStatus
 import io.github.joey7500.vaultflow.domain.model.FlowKind
 import io.github.joey7500.vaultflow.domain.model.Transaction
@@ -70,6 +71,8 @@ import io.github.joey7500.vaultflow.ui.components.formatDateTime
 import io.github.joey7500.vaultflow.ui.components.minorToInput
 import io.github.joey7500.vaultflow.ui.components.money
 import io.github.joey7500.vaultflow.ui.components.moneyColor
+import io.github.joey7500.vaultflow.ui.components.overspendColor
+import io.github.joey7500.vaultflow.ui.components.rememberOverspendThreshold
 import io.github.joey7500.vaultflow.ui.components.parseMoneyInput
 import io.github.joey7500.vaultflow.ui.containerViewModel
 import io.github.joey7500.vaultflow.ui.theme.VaultColors
@@ -149,9 +152,10 @@ fun BudgetScreen() {
                     .groupBy { it.category.group }
                 groups.forEach { (group, lines) ->
                     item(key = "group-$group") {
+                        val redThreshold = rememberOverspendThreshold()
                         GlassCard {
                             Text(group, style = MaterialTheme.typography.titleMedium)
-                            lines.forEach { line -> CategoryLineRow(line) { openCategory(line.category) } }
+                            lines.forEach { line -> CategoryLineRow(line, redThreshold) { openCategory(line.category) } }
                         }
                     }
                 }
@@ -249,19 +253,20 @@ private fun ReserveCard(reserve: ReserveStatus?) {
 }
 
 @Composable
-private fun CategoryLineRow(line: CategoryLine, onClick: () -> Unit) {
+private fun CategoryLineRow(line: CategoryLine, redThresholdMinor: Long, onClick: () -> Unit) {
     val isIncome = line.category.kind == FlowKind.INCOME
+    val overColor = overspendColor(line.overspendLevel(redThresholdMinor))
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(line.category.name + " ›", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             Text(
                 money(line.actualMinor) + if (line.budgetMinor > 0) " / " + money(line.budgetMinor) else "",
                 style = MaterialTheme.typography.bodySmall,
-                color = if (line.isOverBudget) VaultColors.Rose else VaultColors.Muted,
+                color = overColor ?: VaultColors.Muted,
             )
         }
         Spacer(Modifier.height(6.dp))
-        BudgetBar(line.progress, line.isOverBudget, color = if (isIncome) VaultColors.Emerald else if (line.category.kind == FlowKind.INVESTMENT) VaultColors.Sky else VaultColors.Violet)
+        BudgetBar(line.progress, overColor, color = if (isIncome) VaultColors.Emerald else if (line.category.kind == FlowKind.INVESTMENT) VaultColors.Sky else VaultColors.Violet)
     }
 }
 

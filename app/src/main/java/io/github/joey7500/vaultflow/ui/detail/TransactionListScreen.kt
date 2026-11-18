@@ -58,6 +58,9 @@ import io.github.joey7500.vaultflow.ui.components.MoneyField
 import io.github.joey7500.vaultflow.ui.components.SectionLabel
 import io.github.joey7500.vaultflow.ui.components.minorToInput
 import io.github.joey7500.vaultflow.ui.components.money
+import io.github.joey7500.vaultflow.ui.components.overspendColor
+import io.github.joey7500.vaultflow.ui.components.rememberOverspendThreshold
+import io.github.joey7500.vaultflow.domain.budget.Overspend
 import io.github.joey7500.vaultflow.ui.components.parseMoneyInput
 import io.github.joey7500.vaultflow.ui.theme.VaultColors
 import java.time.Instant
@@ -148,6 +151,7 @@ fun TransactionListScreen(detail: Detail.Transactions, onBack: () -> Unit) {
     )
     val state by vm.state.collectAsStateWithLifecycle()
     val offset by vm.offset.collectAsStateWithLifecycle()
+    val redThreshold = rememberOverspendThreshold()
     val snackbar = LocalSnackbar.current
     val navigator = LocalNavigator.current
     LaunchedEffect(vm) { vm.messages.collect { snackbar.showSnackbar(it) } }
@@ -180,14 +184,15 @@ fun TransactionListScreen(detail: Detail.Transactions, onBack: () -> Unit) {
                     if (c.kind != FlowKind.TRANSFER && !c.isUncertain) {
                         Spacer(Modifier.height(8.dp))
                         val budget = c.monthlyBudgetMinor
+                        val overColor = overspendColor(Overspend.level(c.kind, budget, state.totalMinor, redThreshold))
                         if (budget > 0) {
-                            BudgetBar(state.totalMinor.toFloat() / budget, c.kind != FlowKind.INCOME && state.totalMinor > budget)
+                            BudgetBar(state.totalMinor.toFloat() / budget, overColor)
                             Spacer(Modifier.height(4.dp))
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 if (budget > 0) "Budget ${money(budget)} · ${if (state.totalMinor <= budget) "left " + money(budget - state.totalMinor) else "over by " + money(state.totalMinor - budget)}" else "No budget set",
-                                style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted, modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodySmall, color = overColor ?: VaultColors.Muted, modifier = Modifier.weight(1f),
                             )
                             TextButton(onClick = { editBudget = true }) { Text("Edit budget") }
                         }
