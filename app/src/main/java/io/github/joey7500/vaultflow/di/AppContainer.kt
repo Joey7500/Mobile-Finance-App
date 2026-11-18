@@ -25,7 +25,7 @@ import kotlinx.coroutines.sync.withLock
  * with synthetic data, so the real vault is never touched while demoing.
  */
 class AppContainer(context: Context) {
-    private val appContext = context.applicationContext
+    val appContext: Context = context.applicationContext
 
     val prefs = AppPreferences(appContext)
     val vault = SecretVault(appContext)

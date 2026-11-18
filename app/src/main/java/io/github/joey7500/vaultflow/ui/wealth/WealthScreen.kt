@@ -83,7 +83,8 @@ fun WealthScreen() {
                 Column(Modifier.weight(1f)) {
                     Text("Net worth", style = MaterialTheme.typography.headlineSmall)
                     Text(
-                        state?.lastRefreshAt?.let { "Updated " + formatDateTime(it) } ?: "Not refreshed yet",
+                        (state?.lastRefreshAt?.let { "Last updated " + formatDateTime(it) } ?: "Not refreshed yet") +
+                            if (state?.trading212?.hasCredentials == true && !io.github.joey7500.vaultflow.ui.appContainer().isDemo) " · auto every 12 h" else "",
                         style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
                     )
                 }

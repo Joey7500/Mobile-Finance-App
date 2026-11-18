@@ -71,6 +71,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         c.vault.put(SecretVault.T212_API_KEY, key)
         c.vault.put(SecretVault.T212_API_SECRET, secret)
         hasT212.value = c.vault.has(SecretVault.T212_API_KEY)
+        if (hasT212.value && !c.isDemo) io.github.joey7500.vaultflow.wealth.WealthRefreshWorker.schedule(c.appContext)
         say("Saved to the encrypted vault")
     }
 
@@ -78,6 +79,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         c.vault.put(SecretVault.T212_API_KEY, null)
         c.vault.put(SecretVault.T212_API_SECRET, null)
         hasT212.value = false
+        io.github.joey7500.vaultflow.wealth.WealthRefreshWorker.cancel(c.appContext)
         say("Trading 212 credentials removed")
     }
 

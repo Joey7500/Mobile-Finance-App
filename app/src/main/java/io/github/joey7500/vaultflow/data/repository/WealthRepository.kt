@@ -20,6 +20,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.roundToLong
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.combine
 
 data class Trading212Info(
@@ -103,7 +105,12 @@ class WealthRepository(
      * Pulls live values (ČNB FX, Trading 212, gold spot) and stores today's
      * net-worth snapshot. Returns human-readable problems, empty when all went well.
      */
-    suspend fun refresh(): List<String> {
+    suspend fun refresh(): List<String> = refreshLock.withLock { refreshLocked() }
+
+    /** The manual refresh and the 12-hour background job never run at the same time. */
+    private val refreshLock = Mutex()
+
+    private suspend fun refreshLocked(): List<String> {
         val problems = mutableListOf<String>()
         val now = System.currentTimeMillis()
 
