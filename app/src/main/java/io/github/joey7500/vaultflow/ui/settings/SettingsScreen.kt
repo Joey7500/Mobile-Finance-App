@@ -146,6 +146,10 @@ fun SettingsScreen(onRestartRequested: () -> Unit) {
         SectionLabel("Budget period")
         PeriodCard(vm)
 
+        // ───────── Budget tab ─────────
+        SectionLabel("Budget tab")
+        BudgetTabCard()
+
         // ───────── Reserve ─────────
         SectionLabel("Reserve floor")
         GlassCard {
@@ -572,6 +576,25 @@ private fun PasswordDialog(title: String, confirm: Boolean, warning: String? = n
         confirmButton = { TextButton(enabled = ok, onClick = { onDone(p1.toCharArray()) }) { Text("Continue") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+@Composable
+private fun BudgetTabCard() {
+    val prefs = io.github.joey7500.vaultflow.ui.appContainer().prefs
+    val show by prefs.budgetShowTransactions.collectAsStateWithLifecycle()
+    GlassCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Show transactions on the Budget tab", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Off = the Budget tab shows only the totals and categories. Every transaction stays reachable " +
+                        "by tapping a category, Income / Spent / Invested, or an account.",
+                    style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+                )
+            }
+            Switch(checked = show, onCheckedChange = prefs::setBudgetShowTransactions)
+        }
+    }
 }
 
 @Composable

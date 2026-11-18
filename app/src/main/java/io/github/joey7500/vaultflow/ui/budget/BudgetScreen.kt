@@ -16,6 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
@@ -50,6 +52,7 @@ import io.github.joey7500.vaultflow.ui.KindFilter
 import io.github.joey7500.vaultflow.ui.LocalNavigator
 import io.github.joey7500.vaultflow.ui.LocalSnackbar
 import io.github.joey7500.vaultflow.ui.TxFilter
+import io.github.joey7500.vaultflow.ui.appContainer
 import io.github.joey7500.vaultflow.ui.common.TransactionDialog
 import io.github.joey7500.vaultflow.ui.common.TransactionRow
 import io.github.joey7500.vaultflow.ui.components.BudgetBar
@@ -86,6 +89,9 @@ fun BudgetScreen() {
         navigator.open(Detail.Transactions(TxFilter.Category(c.id, c.name, c.isUncertain), vm.periodOffset))
     fun openKind(k: KindFilter) = navigator.open(Detail.Transactions(TxFilter.Kind(k), vm.periodOffset))
     var adding by remember { mutableStateOf(false) }
+    val prefs = appContainer().prefs
+    val showTransactions by prefs.budgetShowTransactions.collectAsStateWithLifecycle()
+    val transactionsExpanded by prefs.budgetTransactionsExpanded.collectAsStateWithLifecycle()
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -151,17 +157,36 @@ fun BudgetScreen() {
                 }
             }
 
-            item { SectionLabel("Transactions (${state.transactions.size})") }
-            if (state.loaded && state.transactions.isEmpty()) {
-                item {
-                    Text(
-                        "No transactions in this period yet. Add one with + or enable automatic capture in Settings.",
-                        style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
-                    )
+            // Hidden completely via Settings → Budget tab; the drill-downs still list everything.
+            if (showTransactions) {
+                item(key = "tx-header") {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { prefs.setBudgetTransactionsExpanded(!transactionsExpanded) },
+                    ) {
+                        SectionLabel("Transactions (${state.transactions.size})", Modifier.weight(1f))
+                        Icon(
+                            if (transactionsExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                            contentDescription = if (transactionsExpanded) "Collapse transactions" else "Expand transactions",
+                            tint = VaultColors.Muted,
+                        )
+                    }
                 }
-            }
-            items(state.transactions, key = { it.id }) { tx ->
-                TransactionRow(tx, state.categoryName(tx.categoryId)) { editTx = tx }
+                if (transactionsExpanded) {
+                    if (state.loaded && state.transactions.isEmpty()) {
+                        item {
+                            Text(
+                                "No transactions in this period yet. Add one with + or enable automatic capture in Settings.",
+                                style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+                            )
+                        }
+                    }
+                    items(state.transactions, key = { it.id }) { tx ->
+                        TransactionRow(tx, state.categoryName(tx.categoryId)) { editTx = tx }
+                    }
+                }
             }
         }
 
