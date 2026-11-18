@@ -2,6 +2,8 @@ package io.github.joey7500.vaultflow.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,14 +25,12 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -46,6 +46,7 @@ import io.github.joey7500.vaultflow.ui.detail.TransactionListScreen
 import io.github.joey7500.vaultflow.ui.settings.SettingsScreen
 import io.github.joey7500.vaultflow.ui.theme.VaultColors
 import io.github.joey7500.vaultflow.ui.wealth.WealthScreen
+import kotlinx.coroutines.launch
 
 /** Snackbar host shared by all tabs. */
 val LocalSnackbar = staticCompositionLocalOf { SnackbarHostState() }
@@ -64,7 +65,9 @@ private enum class Tab(val label: String) { BUDGET("Budget"), ACCOUNTS("Accounts
 
 @Composable
 fun AppShell(onRestartRequested: () -> Unit) {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    // Swiping left/right moves between the tabs; the bottom bar follows the pager and vice versa.
+    val pager = rememberPagerState(pageCount = { Tab.entries.size })
+    val scope = rememberCoroutineScope()
     // Stack of opened detail pages (category lists, account detail); back pops one.
     val details = remember { mutableStateListOf<Detail>() }
     val navigator = remember { Navigator { details.add(it) } }
@@ -80,8 +83,11 @@ fun AppShell(onRestartRequested: () -> Unit) {
                 NavigationBar(containerColor = VaultColors.Surface) {
                     Tab.entries.forEachIndexed { i, t ->
                         NavigationBarItem(
-                            selected = tab == i,
-                            onClick = { tab = i; details.clear() },
+                            selected = pager.targetPage == i,
+                            onClick = {
+                                details.clear()
+                                scope.launch { pager.animateScrollToPage(i) }
+                            },
                             icon = {
                                 Icon(
                                     when (t) {
@@ -110,15 +116,34 @@ fun AppShell(onRestartRequested: () -> Unit) {
                     )
                 }
                 Box(Modifier.fillMaxSize()) {
-                    val top = details.lastOrNull()
-                    when {
-                        top is Detail.Transactions -> TransactionListScreen(top) { details.removeAt(details.lastIndex) }
-                        top is Detail.AccountDetail -> AccountDetailScreen(top.accountId) { details.removeAt(details.lastIndex) }
-                        else -> when (Tab.entries[tab]) {
+                    // The pager stays composed under an open detail page, so each tab keeps its scroll
+                    // position; swiping is off while a detail page is shown.
+                    HorizontalPager(
+                        state = pager,
+                        userScrollEnabled = details.isEmpty(),
+                        key = { it },
+                        modifier = Modifier.fillMaxSize(),
+                    ) { page ->
+                        when (Tab.entries[page]) {
                             Tab.BUDGET -> BudgetScreen()
                             Tab.ACCOUNTS -> AccountsScreen()
                             Tab.WEALTH -> WealthScreen()
                             Tab.SETTINGS -> SettingsScreen(onRestartRequested)
+                        }
+                    }
+                    val top = details.lastOrNull()
+                    if (top != null) {
+                        // Opaque layer that also swallows touches, so nothing reaches the tab underneath.
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(VaultColors.Background)
+                                .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
+                        ) {
+                            when (top) {
+                                is Detail.Transactions -> TransactionListScreen(top) { details.removeAt(details.lastIndex) }
+                                is Detail.AccountDetail -> AccountDetailScreen(top.accountId) { details.removeAt(details.lastIndex) }
+                            }
                         }
                     }
                 }
