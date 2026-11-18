@@ -1,8 +1,9 @@
 # VaultFlow – project notes for Claude Code
 
 Personal-finance Android app (Kotlin, Jetpack Compose). The owner is new to
-Android: explain steps plainly, give exact PowerShell commands (Windows PC),
-and answer in Czech when asked in Czech.
+Android: explain steps plainly and give exact PowerShell commands (Windows PC).
+**Always answer in English**, even if a message or a bank notification is in
+Czech (keep quoted Czech notification/e-mail text as it is).
 
 ## Absolute rules (security)
 
@@ -106,6 +107,18 @@ them green and add a new scenario for every new bug.
   add signing secrets himself – never handle the passwords).
 - Personal setup values (card digits, account numbers, amounts) live only in
   the app – ask the owner, never write them into the repo.
+
+## Agents and skills in this repo
+
+- Subagents (`.claude/agents/`): `security-reviewer` (run before every push),
+  `domain-test-writer` (turns a bug report into a failing test with fake data),
+  `capture-debugger` (investigates a wrongly captured/merged payment).
+- Skills (slash commands, `.claude/skills/`): `/release` (bump version, test,
+  build, install on the USB-connected phone), `/phone-logs` (crash log of the
+  app only).
+- The phone is reachable through adb when it is on USB with USB debugging
+  allowed. Never dump other apps' data, notifications or the whole logcat:
+  filter to the app's own process.
 
 ## Layout
 
