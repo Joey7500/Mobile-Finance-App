@@ -62,5 +62,7 @@ class SettingsStore(private val dao: SettingDao) {
         const val INCOME_GRACE_DAYS = "income_grace_days"
         const val EMAIL_LAST_RESULT = "email_last_result"
         const val OVERSPEND_RED_THRESHOLD_MINOR = "overspend_red_threshold_minor"
+        const val DUPLICATE_REPAIR_V2_DONE = "duplicate_repair_v2"
+        const val DUPLICATES_DISMISSED = "duplicates_dismissed"
     }
 }

@@ -84,7 +84,17 @@ data class Transaction(
     val fingerprint: String? = null,
     /** Every source that reported this transaction (Wallet, bank app, e-mail...). */
     val evidence: Set<TransactionSource> = setOf(source),
+    /** Fingerprints of EVERY message fused into this record: a replay of any of them is recognised. */
+    val fingerprints: Set<String> = setOfNotNull(fingerprint),
+    /**
+     * Earliest possible time when only the DATE is known (a bank e-mail saying "ze dne 10. 11.").
+     * The record then happened somewhere in [earliestMillis, timestampMillis]. Null = exact time.
+     */
+    val earliestMillis: Long? = null,
 ) {
+    /** This record already contains the message with fingerprint [fp]. */
+    fun knows(fp: String?): Boolean = fp != null && (fp == fingerprint || fp in fingerprints)
+
     val isConfirmedByBank: Boolean
         get() = TransactionSource.EMAIL in evidence || TransactionSource.BANK_NOTIFICATION in evidence
 }

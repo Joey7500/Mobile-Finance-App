@@ -11,6 +11,7 @@ import io.github.joey7500.vaultflow.domain.model.TransactionSource
 import io.github.joey7500.vaultflow.domain.model.TransactionStatus
 import io.github.joey7500.vaultflow.domain.text.TextNormalizer
 import java.time.ZoneId
+import kotlin.math.abs
 
 /** One notification or e-mail, as delivered by the platform. */
 data class IncomingMessage(
@@ -66,6 +67,20 @@ data class IngestResult(
 object IngestionPipeline {
     /** Typical e-mail delay after the payment; used when an e-mail only carries the date. */
     const val EMAIL_DELAY_MS: Long = 6 * 60 * 1000L
+
+    /** How far back the repository looks for records to fuse with (late e-mails, week-long transfers). */
+    const val RECENT_WINDOW_MS: Long = 8L * 24 * 3600 * 1000
+
+    /** The same notification (same id, same text) posted again within this time is a re-post. */
+    const val REPOST_WINDOW_MS: Long = 2 * 60 * 1000L
+
+    private const val MIRROR = ":mirror"
+
+    /** An expected transfer counterpart is confirmed without an explicit account link only within this time. */
+    const val UNLINKED_TRANSFER_WINDOW_MS: Long = 72L * 3600 * 1000
+
+    /** A card top-up shows on both accounts within minutes (only its e-mail may be late, as a date range). */
+    const val CARD_TRANSFER_WINDOW_MS: Long = 3L * 3600 * 1000
 
     fun process(msg: IncomingMessage, ctx: IngestContext): IngestResult {
         val bank = BankMessageParser.parse(msg.sourceKey, msg.channel, msg.title, msg.text, ctx.zone)
@@ -124,12 +139,32 @@ object IngestionPipeline {
             parsed.isFromWallet -> TransactionSource.GOOGLE_WALLET
             else -> TransactionSource.BANK_NOTIFICATION
         }
+        // A date-only e-mail ("ze dne 10. 11. 2026") happened somewhere on that day before it arrived:
+        // the record spans [start of that day, arrival] (arrival capped at the end of that day).
+        val dateOnly = msg.channel == Channel.EMAIL && bank.eventTimeMillis == null && bank.eventDate != null
+        val dayStart = bank.eventDate?.atStartOfDay(ctx.zone)?.toInstant()?.toEpochMilli()
+        val dayEnd = bank.eventDate?.plusDays(1)?.atStartOfDay(ctx.zone)?.toInstant()?.toEpochMilli()?.minus(1)
         val timestamp = when {
             bank.eventTimeMillis != null -> bank.eventTimeMillis
+            dateOnly && dayStart != null && dayEnd != null -> msg.receivedAtMillis.coerceIn(dayStart, dayEnd)
             msg.channel == Channel.EMAIL -> msg.receivedAtMillis - EMAIL_DELAY_MS
             else -> msg.receivedAtMillis
         }
         val fingerprint = TextNormalizer.fingerprint(msg.sourceKey, msg.messageKey, msg.title.orEmpty(), msg.text.orEmpty())
+        // Same notification id + same text, without the post time: recognises an app re-posting it.
+        val contentKey = if (msg.channel == Channel.NOTIFICATION) {
+            "c:" + TextNormalizer.fingerprint(msg.sourceKey, msg.messageKey.substringBeforeLast('|'), msg.title.orEmpty(), msg.text.orEmpty())
+        } else {
+            null
+        }
+
+        // Replays: a message already fused into ANY recent record (not only the closest one).
+        if (ctx.recentTransactions.any { it.knows(fingerprint) }) {
+            return IngestResult(outcome = "skipped: already captured")
+        }
+        if (contentKey != null && ctx.recentTransactions.any { it.knows(contentKey) && abs(it.timestampMillis - timestamp) <= REPOST_WINDOW_MS }) {
+            return IngestResult(outcome = "skipped: same notification posted again")
+        }
 
         val candidate = Transaction(
             timestampMillis = timestamp,
@@ -154,14 +189,13 @@ object IngestionPipeline {
             },
             sourcePackage = msg.sourceKey,
             fingerprint = fingerprint,
+            fingerprints = setOfNotNull(fingerprint, contentKey),
+            earliestMillis = if (dateOnly) dayStart else null,
         )
 
         val inserts = mutableListOf<Transaction>()
         val updates = mutableListOf<Transaction>()
-        val duplicate = Deduplicator.findDuplicate(candidate, ctx.recentTransactions)
-        if (duplicate != null && duplicate.fingerprint == candidate.fingerprint) {
-            return IngestResult(outcome = "skipped: already captured")
-        }
+        val duplicate = Deduplicator.findDuplicate(candidate, fusionCandidates(msg, bank, direction, counterparty, candidate, ctx))
 
         val main: Transaction
         val outcome: String
@@ -182,6 +216,10 @@ object IngestionPipeline {
         // Transfer between your own accounts: the other account must show the money too.
         var mirrorOutcome = ""
         if (counterparty != null && counterparty.id != sourceAccount?.id) {
+            // The counterpart is linked by fingerprint: record from message X <-> "X:mirror". A record
+            // that started as a mirror points back to its origin, so the link never chains.
+            val root = main.fingerprint ?: fingerprint
+            val counterpartFp = if (root.endsWith(MIRROR)) root.removeSuffix(MIRROR) else root + MIRROR
             val mirror = Transaction(
                 timestampMillis = main.timestampMillis,
                 amountMinor = -main.amountCzkMinor,
@@ -199,16 +237,29 @@ object IngestionPipeline {
                 confidence = 1.0,
                 note = "expected counterpart of a transfer",
                 sourcePackage = null,
-                fingerprint = "${main.fingerprint ?: fingerprint}:mirror",
+                fingerprint = counterpartFp,
+                earliestMillis = main.earliestMillis,
             )
             val others = ctx.recentTransactions.filter { it.id != main.id || main.id == 0L }
-            val otherSide = Deduplicator.findDuplicate(mirror, others)
+            val linked = others.firstOrNull { it.accountId == counterparty.id && it.knows(counterpartFp) }
+            // A real report confirms the counterpart only if it looks like this transfer: already
+            // booked as an internal transfer (it named our account), or not categorised at all and recent.
+            // A record that already belongs to ANOTHER transfer pair is never claimed twice.
+            val cardBased = bank.cardDigits.isNotEmpty()
+            val confirmers = others.filter { t ->
+                !isPaired(t, others) && (!cardBased || cardTopUpMatches(mirror, t)) && (
+                    TransactionSource.INFERRED in t.evidence || t.categoryId == transferId ||
+                        (t.categoryId == null && isGenericTransferText(t.merchant) &&
+                            abs(t.timestampMillis - mirror.timestampMillis) <= UNLINKED_TRANSFER_WINDOW_MS)
+                    )
+            }
+            val otherSide = linked ?: Deduplicator.findDuplicate(mirror, confirmers)
             when {
                 otherSide == null -> {
                     inserts += mirror
                     mirrorOutcome = " + counterpart on ${counterparty.name}"
                 }
-                otherSide.fingerprint == mirror.fingerprint -> Unit
+                otherSide.knows(counterpartFp) -> Unit
                 else -> {
                     var merged = Deduplicator.merge(otherSide, mirror)
                     if (transferId != null && !isUserChoice(otherSide, transferId)) merged = merged.copy(categoryId = transferId)
@@ -227,6 +278,83 @@ object IngestionPipeline {
             }
         }
         return IngestResult(inserts, updates, balanceAfter, outcome + mirrorOutcome + if (balanceAfter != null) " + balance" else "")
+    }
+
+    /**
+     * Records this message may be fused with:
+     * - an expected transfer counterpart is only confirmed by a transfer-like report: one that names
+     *   the other own account (any time within the week) or carries no shop name ("Money added",
+     *   within 72 h). A card payment at a shop never eats it, and neither does a stranger's payment;
+     * - a Wallet report for a card stored on no account never folds into a payment of an account
+     *   whose cards are known (it is another card);
+     * - an e-mail never confirms a payment that happened after the e-mail arrived.
+     */
+    private fun fusionCandidates(
+        msg: IncomingMessage, bank: BankMessage, direction: Direction, counterparty: Account?, candidate: Transaction, ctx: IngestContext,
+    ): List<Transaction> {
+        val cardBased = bank.cardDigits.isNotEmpty()
+        val otherRole = if (direction == Direction.OUT) AccountRole.TO else AccountRole.FROM
+        val stranger = counterparty == null && bank.accounts.any { it.role == otherRole && ownAccountFor(it, ctx) == null }
+        val transferLike = !stranger && (counterparty != null || isGenericTransferText(candidate.merchant))
+        val messageTime = bank.eventTimeMillis ?: msg.receivedAtMillis
+        val unknownCard = bank.cardDigits.isNotEmpty() && cardAccount(bank, ctx) == null
+        val accountsWithCards = ctx.accounts.filter { it.cardIdentifiers.isNotEmpty() }.map { it.id }.toSet()
+        return ctx.recentTransactions.filter { t ->
+            val isTransferCounterpart = TransactionSource.INFERRED in t.evidence
+            val counterpartOk = transferLike &&
+                (counterparty != null || abs(t.timestampMillis - messageTime) <= UNLINKED_TRANSFER_WINDOW_MS) &&
+                (!cardBased || cardTopUpMatches(candidate, t))
+            !(isTransferCounterpart && !counterpartOk) &&
+                !(unknownCard && t.accountId in accountsWithCards) &&
+                !(msg.channel == Channel.EMAIL && !isTransferCounterpart && t.timestampMillis > msg.receivedAtMillis + REPOST_WINDOW_MS && !isDelayedPush(t, msg))
+        }
+    }
+
+    /**
+     * Both sides of a card top-up happen at the same moment: within 3 h, and on the stated DAY
+     * when one side is only known by its date (a date-only e-mail or its counterpart).
+     */
+    private fun cardTopUpMatches(a: Transaction, b: Transaction): Boolean {
+        val aFrom = a.earliestMillis
+        val bFrom = b.earliestMillis
+        // A push timed after a date-only side's range was delivered late (phone was off).
+        fun delayedPush(push: Transaction, ranged: Transaction) =
+            TransactionSource.BANK_NOTIFICATION in push.evidence && push.earliestMillis == null &&
+                push.timestampMillis > ranged.timestampMillis &&
+                push.timestampMillis - ranged.timestampMillis <= Deduplicator.LATE_PUSH_MS
+        return when {
+            aFrom != null && bFrom != null -> Deduplicator.gap(a, b) == 0L
+            aFrom != null -> b.timestampMillis in aFrom..a.timestampMillis || delayedPush(b, a)
+            bFrom != null -> a.timestampMillis in bFrom..b.timestampMillis || delayedPush(a, b)
+            else -> Deduplicator.gap(a, b) <= CARD_TRANSFER_WINDOW_MS
+        }
+    }
+
+    /** A bank push timed after this e-mail arrived: delivered late because the phone was off. */
+    private fun isDelayedPush(t: Transaction, mail: IncomingMessage): Boolean =
+        TransactionSource.BANK_NOTIFICATION in t.evidence && TransactionSource.EMAIL !in t.evidence &&
+            t.earliestMillis == null && t.timestampMillis - mail.receivedAtMillis <= Deduplicator.LATE_PUSH_MS
+
+    private val TRANSFER_WORDS = setOf(
+        "MONEY", "ADDED", "ADD", "TOP", "UP", "TOPUP", "DOBITI", "DOBIJENI", "PRIDANO", "PRIDALI", "JSME", "VKLAD",
+        "DEPOSIT", "PRICHOZI", "ODCHOZI", "PLATBA", "INCOMING", "OUTGOING", "TRANSFER", "PREVOD", "FROM", "TO",
+        "CARD", "KARTY", "KARTOU", "VIA", "PAYMENT", "Z", "NA", "UCET", "UCTU",
+    )
+
+    /** "Money added", "Dobití", "Příchozí platba": a text that names no shop. */
+    private fun isGenericTransferText(merchant: String): Boolean =
+        TextNormalizer.merchantKey(merchant).split(Regex("[^A-Z0-9]+")).filter { it.isNotBlank() && it.any(Char::isLetter) }
+            .all { it in TRANSFER_WORDS }
+
+    /**
+     * Already one side of a transfer pair: it is (or absorbed) an expected counterpart, or another
+     * record is its counterpart ("<its fingerprint>:mirror").
+     */
+    private fun isPaired(t: Transaction, all: List<Transaction>): Boolean {
+        if (TransactionSource.INFERRED in t.evidence) return false // an open counterpart, may be confirmed
+        if (t.fingerprints.any { it.endsWith(MIRROR) } || t.fingerprint?.endsWith(MIRROR) == true) return true
+        val own = (t.fingerprints + listOfNotNull(t.fingerprint)).map { it + MIRROR }
+        return all.any { o -> o.id != t.id && own.any { o.knows(it) } }
     }
 
     /** Card digits > account number in the message > account mapped to the sender. */

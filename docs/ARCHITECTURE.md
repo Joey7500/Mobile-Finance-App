@@ -54,6 +54,9 @@ flowchart LR
 | Reserve = balance check, not an expense | `safe = liquid − floor − remaining budget`. Subtracting 5 000 every month (as in the first draft) double-counts the reserve. |
 | Accounts use an *anchor balance* | Notifications carry transactions, not balances. You confirm a balance once and the app adds captured transactions on top. Re-anchor any time. |
 | Dedup only across different apps | Wallet + bank report of one payment merge; two identical coffees from the same app don't. |
+| Every fused message is remembered | A record keeps the fingerprints of ALL messages fused into it, so a replay (re-delivered notification, e-mail fetched again after a restore) is recognised, not only a replay of the first report. |
+| Time as a range | A date-only bank e-mail ("ze dne 10. 11.") is matched to its stated day up to its arrival, so an e-mail hours late still confirms its payment, and never a payment from another day. |
+| Transfers linked by fingerprint | The counterpart of message X carries `X:mirror`; a record that started as a counterpart links back to X, so later reports never create a second counterpart. A card payment at a shop or a stranger's payment never confirms an expected transfer. |
 | On-device classifier, no LLM | Transactions never leave the phone; $0 running cost. Learned rules cover the long tail. |
 | Guesses are applied but flagged | A result below 0.8 confidence keeps its category with low confidence and appears under *Quick review*; nothing matched = Uncertain. Two consistent corrections of a merchant make a trusted learned rule; "always" makes one immediately. |
 | Keystore AES-GCM instead of `security-crypto` | The Jetpack library is deprecated; the platform API is stable. |
@@ -61,6 +64,29 @@ flowchart LR
 | No destructive migrations | A schema change must never wipe financial history. Schemas are exported to `app/schemas/`. |
 | Manual DI | Small graph, zero annotation processing beyond Room; easy to read. |
 | Money as `Long` minor units | No floating-point rounding errors. |
+
+## De-duplication: what is decided how
+
+| Situation | Decision |
+|---|---|
+| Same message again (re-post with the same key, restore, re-fetch) | Skipped: its fingerprint is known |
+| Bank app re-posts its notification (same id, same text, new time within 2 min) | Skipped |
+| Push + Wallet + e-mail of one payment, any order, e-mail up to days late | One record |
+| Date-only e-mail | The unconfirmed payment of its stated day closest before the e-mail arrived |
+| Phone off: push delivered hours late (before or after the e-mail is fetched) | Merged with the e-mail-only record up to 12 h |
+| Wallet re-posts (up to 90 min, other spelling) | Fold by name; never move a record's bank time |
+| Two identical payments, each reported by the bank | Two records |
+| Own transfer: interbank / card top-up | Counterpart within 7 days / within 3 h (on the e-mail's day) |
+
+Known limits (no matcher can know): two identical payments (same shop, amount, account) within
+90 min that only Google Wallet reports become one; and when the same shop charges the same
+amount twice within 12 h and one payment is known only from its date-only e-mail while the other
+only from its push, they are treated as one payment reported twice (or a late push). Such pairs
+appear on the Budget tab under *Possible duplicates* when they look like older duplicates.
+
+`DedupPropertyTest` replays 1 200 random months (arrival order, late e-mail fetches, phone off,
+re-delivered and re-fetched messages) and checks every account: one record per real payment,
+correct total. `DedupScenarioMatrixTest` and `DedupRegressionTest` hold the concrete cases.
 
 ## Testing
 

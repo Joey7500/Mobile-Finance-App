@@ -33,6 +33,8 @@ fun TransactionEntity.toDomain() = Transaction(
     confidence = confidence, note = note, sourcePackage = sourcePackage, fingerprint = fingerprint,
     evidence = evidence.split(',').mapNotNull { e -> runCatching { enumValueOf<TransactionSource>(e.trim()) }.getOrNull() }
         .toSet().ifEmpty { setOf(enumOr(source, TransactionSource.MANUAL)) },
+    fingerprints = (fingerprints.split(' ').filter { it.isNotBlank() } + listOfNotNull(fingerprint)).toSet(),
+    earliestMillis = earliestMillis,
 )
 
 fun Transaction.toEntity() = TransactionEntity(
@@ -41,6 +43,8 @@ fun Transaction.toEntity() = TransactionEntity(
     source = source.name, status = status.name, confidence = confidence, note = note,
     sourcePackage = sourcePackage, fingerprint = fingerprint,
     evidence = evidence.joinToString(",") { it.name },
+    fingerprints = (fingerprints + listOfNotNull(fingerprint)).sorted().joinToString(" "),
+    earliestMillis = earliestMillis,
 )
 
 fun AccountEntity.toDomain() = Account(

@@ -14,31 +14,76 @@ import kotlin.math.abs
 /**
  * Fuses reports of the SAME payment coming from different sources:
  * Google Wallet (instant), the bank app (instant) and the bank e-mail
- * (≈ 6 minutes later, with the settled amount and the balance).
+ * (≈ 6 minutes to several hours later, with the settled amount and the balance).
  *
  * Rules:
+ * - A message already fused into a record (any of its [Transaction.fingerprints])
+ *   is recognised when it is replayed.
  * - A record already confirmed by a source never absorbs a second report from
- *   that same source: two e-mails or two Wallet taps are two purchases
+ *   that same source: two e-mails or two bank pushes are two purchases
  *   (e.g. two 89 Kč coffees).
- * - Time windows depend on the sources: ±10 min between instant sources,
- *   ±3 h when an e-mail is involved (some e-mails only carry the date),
- *   ±72 h for the expected counterpart of a transfer (interbank clearing).
+ * - Time is compared as a RANGE: a date-only e-mail ("ze dne 10. 11.") happened
+ *   somewhere on that day before it arrived. Windows: ±10 min between instant
+ *   sources, ±3 h when an e-mail is involved, the stated day for date-only
+ *   e-mails, 90 min for Wallet re-posts, 7 days for a transfer counterpart.
  * - Different accounts never merge.
- * - Among several candidates the one closest in time wins.
+ * - Among several candidates the one closest in time wins; a date-only e-mail
+ *   confirms the unconfirmed payment of its day closest before it arrived.
  */
 object Deduplicator {
-    const val WINDOW_MS: Long = 10 * 60 * 1000L
-    const val EMAIL_WINDOW_MS: Long = 3 * 60 * 60 * 1000L
-    const val TRANSFER_WINDOW_MS: Long = 72 * 60 * 60 * 1000L
-    const val SAME_MOMENT_MS: Long = 3 * 60 * 1000L
-    const val WALLET_REPOST_WINDOW_MS: Long = 90 * 60 * 1000L
+    private const val MIN = 60 * 1000L
+    const val WINDOW_MS: Long = 10 * MIN
+    const val EMAIL_WINDOW_MS: Long = 3 * 60 * MIN
+    const val TRANSFER_WINDOW_MS: Long = 7 * 24 * 60 * MIN
+    const val SAME_MOMENT_MS: Long = 3 * MIN
+    const val WALLET_REPOST_WINDOW_MS: Long = 90 * MIN
 
-    fun findDuplicate(candidate: Transaction, recent: List<Transaction>): Transaction? =
-        recent.filter { isDuplicate(candidate, it) }
-            .minByOrNull { abs(it.timestampMillis - candidate.timestampMillis) }
+    /** Sources that fix the exact time of a payment. */
+    private val INSTANT = setOf(BANK_NOTIFICATION, GOOGLE_WALLET, INFERRED)
+
+
+    /** A push that arrives late (phone was off) may still confirm a payment its date-only e-mail reported. */
+    const val LATE_PUSH_MS: Long = 12 * 60 * MIN
+
+    fun findDuplicate(candidate: Transaction, recent: List<Transaction>): Transaction? {
+        val all = recent.filter { isDuplicate(candidate, it) }
+        // A match by name beats a match only by "same amount at the same moment".
+        val matches = all.filterNot { matchedOnlyByMoment(candidate, it) }.ifEmpty { all }
+        if (candidate.source == EMAIL && candidate.earliestMillis != null) {
+            // Date-only e-mail: the unconfirmed payment of that day closest BEFORE it arrived;
+            // otherwise the earliest push that was delivered late (after the e-mail arrived).
+            val (inDay, delayed) = matches.partition { it.timestampMillis <= candidate.timestampMillis }
+            return inDay.maxByOrNull { it.timestampMillis } ?: delayed.minByOrNull { it.timestampMillis }
+        }
+        // An exact-time record within minutes (Wallet: its re-post window) beats a vague date range
+        // that merely contains the time.
+        val near = if (candidate.source == GOOGLE_WALLET) WALLET_REPOST_WINDOW_MS else WINDOW_MS
+        return matches.minWithOrNull(
+            compareBy<Transaction>(
+                { if (it.earliestMillis == null && gap(candidate, it) <= near) 0 else 1 },
+                { gap(candidate, it) },
+                { abs(it.timestampMillis - candidate.timestampMillis) },
+            ),
+        )
+    }
+
+    private fun matchedOnlyByMoment(candidate: Transaction, existing: Transaction): Boolean =
+        candidate.source != INFERRED && existing.source != INFERRED && !existing.knows(candidate.fingerprint) &&
+            !merchantsCompatible(candidate.merchant, existing.merchant)
+
+    /** Distance between the two records' time ranges (0 when they overlap). */
+    fun gap(a: Transaction, b: Transaction): Long {
+        val aFrom = a.earliestMillis ?: a.timestampMillis
+        val bFrom = b.earliestMillis ?: b.timestampMillis
+        return when {
+            a.timestampMillis < bFrom -> bFrom - a.timestampMillis
+            b.timestampMillis < aFrom -> aFrom - b.timestampMillis
+            else -> 0L
+        }
+    }
 
     fun isDuplicate(candidate: Transaction, existing: Transaction): Boolean {
-        if (candidate.fingerprint != null && candidate.fingerprint == existing.fingerprint) return true
+        if (existing.knows(candidate.fingerprint)) return true
         if (candidate.amountCzkMinor.sign() != existing.amountCzkMinor.sign()) return false
         if (candidate.accountId != null && existing.accountId != null && candidate.accountId != existing.accountId) return false
 
@@ -48,13 +93,44 @@ object Deduplicator {
         // Its reports always fold into a matching payment; only bank sources (app notification,
         // e-mail), which report each payment exactly once, may split two identical purchases.
         val walletReport = candidate.source == GOOGLE_WALLET
+        val dateOnlyMail = candidate.source == EMAIL && candidate.earliestMillis != null
+        val latePush = (candidate.source == BANK_NOTIFICATION || walletReport) &&
+            existing.evidence == setOf(EMAIL) && existing.earliestMillis != null &&
+            candidate.timestampMillis >= existing.earliestMillis &&
+            candidate.timestampMillis - existing.timestampMillis <= LATE_PUSH_MS
         val window = when {
             inferred -> TRANSFER_WINDOW_MS
-            candidate.source == EMAIL || EMAIL in existing.evidence -> EMAIL_WINDOW_MS
+            dateOnlyMail -> 0L
+            latePush -> LATE_PUSH_MS
+            candidate.source == EMAIL -> EMAIL_WINDOW_MS
+            // The record's time is only as good as an e-mail's (no instant source fixed it yet).
+            EMAIL in existing.evidence && (existing.earliestMillis != null || existing.evidence.none { it in INSTANT }) -> EMAIL_WINDOW_MS
             walletReport -> WALLET_REPOST_WINDOW_MS
+            // A record timed only by Wallet may carry a RE-POST time; the bank push can be earlier.
+            candidate.source == BANK_NOTIFICATION && GOOGLE_WALLET in existing.evidence &&
+                BANK_NOTIFICATION !in existing.evidence && candidate.timestampMillis <= existing.timestampMillis -> WALLET_REPOST_WINDOW_MS
             else -> WINDOW_MS
         }
-        if (abs(candidate.timestampMillis - existing.timestampMillis) > window) return false
+        if (dateOnlyMail) {
+            // Exactly the stated day, up to the e-mail's arrival (capped at midnight), or a bank push
+            // timed AFTER the e-mail arrived: that push was delivered late (the phone was off).
+            val from = candidate.earliestMillis ?: candidate.timestampMillis
+            val delayedPush = BANK_NOTIFICATION in existing.evidence && EMAIL !in existing.evidence &&
+                existing.earliestMillis == null && existing.timestampMillis > candidate.timestampMillis &&
+                existing.timestampMillis - candidate.timestampMillis <= LATE_PUSH_MS
+            if (existing.timestampMillis < from || (existing.timestampMillis > candidate.timestampMillis && !delayedPush)) return false
+        } else if (gap(candidate, existing) > window) {
+            return false
+        }
+        // A record known only by its DATE accepts a report only within that day up to the e-mail's
+        // arrival, a Wallet re-post up to 90 min later, or a push delivered late (phone was off).
+        val ranged = existing.earliestMillis
+        val grace = if (walletReport) WALLET_REPOST_WINDOW_MS else 0L
+        if (ranged != null && !inferred && candidate.earliestMillis == null &&
+            (candidate.timestampMillis < ranged || (candidate.timestampMillis > existing.timestampMillis + grace && !latePush))
+        ) {
+            return false
+        }
 
         // Same BANK source twice = two real transactions (also for transfer counterparts; the
         // SAME counterpart re-created by a later report is caught by its fingerprint above).
@@ -70,9 +146,11 @@ object Deduplicator {
         }
         val strict = existing.source == MANUAL || candidate.source == MANUAL
         // Two apps reporting the exact same amount on the SAME account within 3 minutes is
-        // the same payment, however differently they spell the merchant.
+        // the same payment, however differently they spell the merchant. Only for a source's FIRST
+        // report of that record: a Wallet re-post must match by name (another shop may charge the
+        // same amount at that moment).
         val sameAccount = candidate.accountId != null && candidate.accountId == existing.accountId
-        if (!strict && sameAccount && abs(candidate.timestampMillis - existing.timestampMillis) <= SAME_MOMENT_MS && candidate.amountCzkMinor == existing.amountCzkMinor) {
+        if (!strict && sameAccount && candidate.source !in existing.evidence && abs(candidate.timestampMillis - existing.timestampMillis) <= SAME_MOMENT_MS && candidate.amountCzkMinor == existing.amountCzkMinor) {
             return true
         }
         return merchantsCompatible(candidate.merchant, existing.merchant, strict)
@@ -96,15 +174,29 @@ object Deduplicator {
         val ta = tokens(a)
         val tb = tokens(b)
         if (ta.isEmpty() || tb.isEmpty()) return !strict
-        if (ta.any { it in tb }) return true
         val ca = compact(a)
         val cb = compact(b)
         if (ca.length >= 4 && cb.length >= 4 && (ca.contains(cb) || cb.contains(ca))) return true
+        // Only DISTINCTIVE words count: "PRAHA" or "KAVARNA" in both names says nothing
+        // ("SHELL 4021 PRAHA" and "ALBERT PRAHA 5" are different shops).
+        val da = ta - NOT_DISTINCTIVE
+        val db = tb - NOT_DISTINCTIVE
+        if (da.isEmpty() || db.isEmpty()) return false
+        if (da.any { it in db }) return true
         // Every word of one name appears inside the other ("VERY", "GOODIES" in "NYXVERYGOODIESAS").
-        if (ta.all { cb.contains(it) } || tb.all { ca.contains(it) }) return true
+        if (da.all { cb.contains(it) } || db.all { ca.contains(it) }) return true
         // Shared word start ("GOODIES" vs "GOODIESAS").
-        return ta.any { x -> x.length >= 4 && tb.any { y -> y.length >= 4 && (x.startsWith(y) || y.startsWith(x)) } }
+        return da.any { x -> x.length >= 4 && db.any { y -> y.length >= 4 && (x.startsWith(y) || y.startsWith(x)) } }
     }
+
+    /** Cities, countries, legal forms and venue words: shared by unrelated shops. */
+    private val NOT_DISTINCTIVE = setOf(
+        "PRAHA", "PRAGUE", "BRNO", "OSTRAVA", "PLZEN", "OLOMOUC", "LIBEREC", "PARDUBICE", "ZLIN", "KLADNO",
+        "CESKE", "BUDEJOVICE", "HRADEC", "KRALOVE", "CESKA", "REPUBLIKA", "CZECH", "REPUBLIC", "CZE",
+        "SRO", "SPOL", "GMBH", "LTD", "INC",
+        "KAVARNA", "RESTAURACE", "RESTAURANT", "CAFE", "BISTRO", "BAR", "PUB", "SHOP", "STORE", "MARKET",
+        "PRODEJNA", "POTRAVINY", "LEKARNA", "HOTEL", "OBCHOD", "ESHOP", "CENTRUM", "CENTER", "NAKUP", "DEKUJE",
+    )
 
     private fun compact(s: String): String = TextNormalizer.merchantKey(s).filter(Char::isLetterOrDigit)
 
@@ -138,11 +230,7 @@ object Deduplicator {
             .maxByOrNull { merchantRank(it.source) }
             ?: existing
         val evidence = existing.evidence + incoming.evidence
-        val timestamp = when {
-            existing.source == INFERRED && incoming.source != INFERRED -> incoming.timestampMillis
-            incoming.source == INFERRED -> existing.timestampMillis
-            else -> minOf(existing.timestampMillis, incoming.timestampMillis)
-        }
+        val (timestamp, earliest) = mergedTime(existing, incoming)
         val primary = if (existing.source == INFERRED && incoming.source != INFERRED) incoming.source else existing.source
         // The category comes from the more confident report; a choice you made always stays.
         val userChose = existing.confidence >= 1.0 && existing.categoryId != null
@@ -166,7 +254,44 @@ object Deduplicator {
             sourcePackage = existing.sourcePackage ?: incoming.sourcePackage,
             evidence = evidence,
             note = listOf(existing.note, incoming.note).filter { it.isNotBlank() }.distinct().joinToString(" · ").take(200),
+            fingerprints = existing.fingerprints + incoming.fingerprints + listOfNotNull(existing.fingerprint, incoming.fingerprint),
+            earliestMillis = earliest,
         )
+    }
+
+    /**
+     * Time of the fused record: a real report beats the expected transfer counterpart; an exact
+     * time beats a date-only range, except a late push that came after the e-mail's day ended.
+     */
+    private fun mergedTime(existing: Transaction, incoming: Transaction): Pair<Long, Long?> {
+        // A date-only report keeps the counterpart's exact time when that time lies inside its range.
+        fun inRange(exact: Transaction, ranged: Transaction) = ranged.earliestMillis != null &&
+            exact.timestampMillis in ranged.earliestMillis..ranged.timestampMillis
+        if (existing.source == INFERRED && incoming.source != INFERRED) {
+            return if (inRange(existing, incoming)) existing.timestampMillis to null else incoming.timestampMillis to incoming.earliestMillis
+        }
+        if (incoming.source == INFERRED) {
+            return if (inRange(incoming, existing)) incoming.timestampMillis to null else existing.timestampMillis to existing.earliestMillis
+        }
+        val exact = listOf(existing, incoming).filter { it.earliestMillis == null }
+        // Wallet is a hint and may carry a RE-POST time: the bank push's time always wins.
+        val pushed = listOf(existing, incoming).filter { BANK_NOTIFICATION in it.evidence }
+        val walletOnly = listOf(existing, incoming).filter { it.evidence == setOf(GOOGLE_WALLET) }
+        if (exact.size == 2 && pushed.size == 1 && walletOnly.size == 1) return pushed.single().timestampMillis to null
+        return when (exact.size) {
+            2 -> minOf(existing.timestampMillis, incoming.timestampMillis) to null
+            0 -> minOf(existing.timestampMillis, incoming.timestampMillis) to
+                maxOf(existing.earliestMillis ?: 0L, incoming.earliestMillis ?: 0L)
+            else -> {
+                val e = exact.single()
+                val approx = if (e === existing) incoming else existing
+                // A Wallet hint arriving onto an e-mail's date range may be a re-post: it never turns
+                // the range into an exact time (a Wallet record that was there FIRST keeps its time).
+                // A late push (after the e-mail arrived) keeps the e-mail's date.
+                val hintOnly = e === incoming && e.evidence == setOf(GOOGLE_WALLET)
+                if (hintOnly || e.timestampMillis > approx.timestampMillis) approx.timestampMillis to approx.earliestMillis else e.timestampMillis to null
+            }
+        }
     }
 
     private val GENERIC = setOf(

@@ -147,6 +147,31 @@ fun BudgetScreen() {
                 }
             }
 
+            val duplicates = state.possibleDuplicates
+            if (duplicates.isNotEmpty()) {
+                item(key = "possible-duplicates") {
+                    GlassCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Possible duplicates", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                            Pill("${duplicates.size}", VaultColors.Amber)
+                        }
+                        Text(
+                            "The bank app and a later bank e-mail may have reported the same payment twice (older versions did this when the e-mail was more than 3 h late). Merge if it was one payment.",
+                            style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+                        )
+                        duplicates.forEach { (push, mail) ->
+                            Spacer(Modifier.height(6.dp))
+                            TransactionRow(push, state.categoryName(push.categoryId)) { editTx = push }
+                            TransactionRow(mail, state.categoryName(mail.categoryId)) { editTx = mail }
+                            Row {
+                                TextButton(onClick = { vm.mergeDuplicate(push, mail) }) { Text("Merge into one") }
+                                TextButton(onClick = { vm.keepBoth(push, mail) }) { Text("Keep both") }
+                            }
+                        }
+                    }
+                }
+            }
+
             val toReview = state.toReview
             if (toReview.isNotEmpty()) {
                 item(key = "quick-review") {

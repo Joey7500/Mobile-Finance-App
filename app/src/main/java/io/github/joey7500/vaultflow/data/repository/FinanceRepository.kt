@@ -17,6 +17,7 @@ import io.github.joey7500.vaultflow.domain.classify.Classifier
 import io.github.joey7500.vaultflow.domain.classify.RuleLearning
 import io.github.joey7500.vaultflow.data.local.entity.ProcessedMessageEntity
 import io.github.joey7500.vaultflow.domain.ingest.BalanceObservation
+import io.github.joey7500.vaultflow.domain.ingest.Deduplicator
 import io.github.joey7500.vaultflow.domain.ingest.DuplicateRepair
 import io.github.joey7500.vaultflow.domain.ingest.IncomingMessage
 import io.github.joey7500.vaultflow.domain.ingest.IngestContext
@@ -55,6 +56,8 @@ data class PeriodView(
 )
 
 /** Everything about the monthly budget, accounts and captured transactions. */
+fun duplicateKey(a: Transaction, b: Transaction): String = "${minOf(a.id, b.id)}-${maxOf(a.id, b.id)}"
+
 class FinanceRepository(
     private val db: VaultDatabase,
     private val settings: SettingsStore,
@@ -263,7 +266,7 @@ class FinanceRepository(
      * enabled are only counted (package name / address), their content is not
      * stored. Returns true when the message was actually processed.
      */
-    suspend fun ingestMessage(msg: IncomingMessage): Boolean = ingestMutex.withLock {
+    suspend fun ingestMessage(msg: IncomingMessage, processedKey: String? = null): Boolean = ingestMutex.withLock {
         val now = System.currentTimeMillis()
         val existing = db.senders().get(msg.sourceKey)
         val sender = (existing ?: SenderEntity(msg.sourceKey, enabled = defaultEnabled(msg.sourceKey), accountId = null, seenCount = 0, lastSeenMillis = 0))
@@ -279,8 +282,8 @@ class FinanceRepository(
             accounts = db.accounts().getAll().map { it.toDomain() },
             categoryIdByKey = categoryIds,
             categoryKindById = db.categories().getAll().associate { it.id to it.toDomain().kind },
-            // 4 days back: covers e-mail delays and interbank transfer counterparts.
-            recentTransactions = db.transactions().getSince(msg.receivedAtMillis - 4L * 24 * 3600 * 1000).map { it.toDomain() },
+            // Covers late e-mails, replays and interbank transfer counterparts (up to a week).
+            recentTransactions = db.transactions().getSince(msg.receivedAtMillis - IngestionPipeline.RECENT_WINDOW_MS).map { it.toDomain() },
             fx = fx,
         )
 
@@ -296,6 +299,8 @@ class FinanceRepository(
                 if (firstId == null) firstId = id
             }
             result.balance?.let { applyBalance(it) }
+            // Marked in the SAME transaction: a crash can never leave an e-mail fused but unmarked.
+            processedKey?.let { db.processedMessages().put(ProcessedMessageEntity(it, now, handled = true)) }
         }
 
         if (settings.get(SettingsStore.CAPTURE_LOG_ENABLED) != "false") {
@@ -359,6 +364,53 @@ class FinanceRepository(
             }
         }
         fixes.sumOf { it.remove.size }
+    }
+
+    /**
+     * One-time clean-up (1.2.0) of duplicates that are PROVABLY one message (see
+     * DuplicateRepair.findProvable). Noted in the capture log. Returns the number removed.
+     */
+    suspend fun repairProvableDuplicates(): Int = ingestMutex.withLock {
+        val now = System.currentTimeMillis()
+        val all = db.transactions().getSince(now - 400L * 24 * 3600 * 1000).map { it.toDomain() }
+        val fixes = DuplicateRepair.findProvable(all)
+        db.withTransaction {
+            fixes.forEach { fix ->
+                db.transactions().update(fix.keep.toEntity())
+                fix.remove.forEach { db.transactions().delete(it.id) }
+            }
+        }
+        val removed = fixes.sumOf { it.remove.size }
+        if (removed > 0) {
+            db.captureLog().insert(
+                CaptureLogEntity(
+                    postedAtMillis = now, packageName = "vaultflow", title = "Duplicate clean-up (1.2.0)", text = "",
+                    outcome = "removed $removed duplicate record(s): one message stored twice or a repeated transfer counterpart",
+                    transactionId = null,
+                ),
+            )
+        }
+        removed
+    }
+
+    /** Pairs the Budget tab offers as "Possible duplicates" ("Keep both" hides a pair for good). */
+    val dismissedDuplicates: Flow<Set<String>> = settings.all.map { s ->
+        s[SettingsStore.DUPLICATES_DISMISSED]?.split(',')?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
+    }
+
+    suspend fun dismissDuplicate(a: Transaction, b: Transaction) {
+        val current = settings.get(SettingsStore.DUPLICATES_DISMISSED)?.split(',')?.filter { it.isNotBlank() }.orEmpty()
+        settings.put(SettingsStore.DUPLICATES_DISMISSED, (current + duplicateKey(a, b)).distinct().takeLast(500).joinToString(","))
+    }
+
+    /** You confirmed two records are one payment: fuse them like two reports of it. */
+    suspend fun mergeDuplicate(keep: Transaction, duplicate: Transaction) = ingestMutex.withLock {
+        db.withTransaction {
+            val k = db.transactions().get(keep.id)?.toDomain() ?: return@withTransaction
+            val d = db.transactions().get(duplicate.id)?.toDomain() ?: return@withTransaction
+            db.transactions().update(Deduplicator.merge(k, d).toEntity())
+            db.transactions().delete(d.id)
+        }
     }
 
     suspend fun processedMessage(key: String) = db.processedMessages().get(key)

@@ -44,6 +44,11 @@ data class TransactionEntity(
     /** Comma-separated sources that reported this transaction (DB v3). */
     @ColumnInfo(defaultValue = "''")
     val evidence: String = "",
+    /** Space-separated fingerprints of EVERY message fused into this record, so replays are recognised (DB v5). */
+    @ColumnInfo(defaultValue = "''")
+    val fingerprints: String = "",
+    /** Earliest possible time when only the date is known (date-only bank e-mail), else null (DB v5). */
+    val earliestMillis: Long? = null,
 )
 
 @Serializable

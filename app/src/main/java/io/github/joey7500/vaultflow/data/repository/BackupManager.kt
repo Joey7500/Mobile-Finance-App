@@ -74,6 +74,7 @@ class BackupManager(private val db: VaultDatabase) {
             db.senders().deleteAll()
             db.settings().deleteAll()
             db.captureLog().deleteAll()
+            db.processedMessages().deleteAll()
 
             db.categories().insertAll(payload.categories)
             db.accounts().insertAll(payload.accounts)

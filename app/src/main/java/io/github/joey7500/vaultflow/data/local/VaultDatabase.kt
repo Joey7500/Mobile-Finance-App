@@ -42,7 +42,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         SettingEntity::class,
         ProcessedMessageEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class VaultDatabase : RoomDatabase() {
@@ -92,6 +92,18 @@ abstract class VaultDatabase : RoomDatabase() {
         }
 
         /**
+         * v4 -> v5: robust fusion. Every fused message's fingerprint is kept on its record
+         * (replays are recognised), and date-only e-mails keep their earliest possible time.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN fingerprints TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN earliestMillis INTEGER")
+                db.execSQL("UPDATE transactions SET fingerprints = fingerprint WHERE fingerprint IS NOT NULL")
+            }
+        }
+
+        /**
          * The real vault: SQLCipher (AES-256) encrypted, keyed by a passphrase
          * wrapped in the hardware Keystore.
          *
@@ -104,7 +116,7 @@ abstract class VaultDatabase : RoomDatabase() {
             val factory = SupportOpenHelperFactory(DatabaseKeyManager(context).passphrase())
             return Room.databaseBuilder(context.applicationContext, VaultDatabase::class.java, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
         }
 

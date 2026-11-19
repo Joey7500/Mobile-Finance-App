@@ -109,6 +109,9 @@ interface ProcessedMessageDao {
 
     @Query("DELETE FROM processed_messages WHERE processedAtMillis < :before")
     suspend fun purgeBefore(before: Long)
+
+    @Query("DELETE FROM processed_messages")
+    suspend fun deleteAll()
 }
 
 @Dao

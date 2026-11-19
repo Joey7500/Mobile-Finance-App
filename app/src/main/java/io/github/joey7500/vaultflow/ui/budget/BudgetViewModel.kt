@@ -38,6 +38,8 @@ data class BudgetUiState(
     val transactions: List<Transaction> = emptyList(),
     val categories: List<Category> = emptyList(),
     val accounts: List<Account> = emptyList(),
+    /** (pushed record, e-mail-only record) pairs that may be one payment; you decide. */
+    val possibleDuplicates: List<Pair<Transaction, Transaction>> = emptyList(),
 ) {
     val uncertain: List<Transaction>
         get() {
@@ -75,7 +77,8 @@ class BudgetViewModel(private val finance: FinanceRepository) : ViewModel() {
             finance.accounts,
             finance.accountBalances,
             finance.reserveFloorMinor,
-        ) { view, accounts, balances, floor ->
+            finance.dismissedDuplicates,
+        ) { view, accounts, balances, floor, dismissed ->
             val summary = BudgetEngine.summarize(view.categories, view.transactions)
             val reserve = if (accounts.isEmpty() || !view.isCurrent) {
                 null
@@ -86,7 +89,9 @@ class BudgetViewModel(private val finance: FinanceRepository) : ViewModel() {
                     remainingPlannedOutflowMinor = summary.remainingPlannedOutflowMinor,
                 )
             }
-            BudgetUiState(view.period, view.isCurrent, true, summary, reserve, view.transactions, view.categories, accounts)
+            val suspects = io.github.joey7500.vaultflow.domain.ingest.DuplicateRepair.suspects(view.transactions, ZoneId.systemDefault())
+                .filter { (a, b) -> io.github.joey7500.vaultflow.data.repository.duplicateKey(a, b) !in dismissed }
+            BudgetUiState(view.period, view.isCurrent, true, summary, reserve, view.transactions, view.categories, accounts, suspects)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BudgetUiState())
 
@@ -112,6 +117,16 @@ class BudgetViewModel(private val finance: FinanceRepository) : ViewModel() {
     fun confirm(tx: Transaction) = viewModelScope.launch {
         val pattern = finance.confirmCategory(tx)
         if (pattern != null) _messages.tryEmit("Learned: \"$pattern\" will be classified automatically")
+    }
+
+    fun mergeDuplicate(keep: Transaction, duplicate: Transaction) = viewModelScope.launch {
+        finance.mergeDuplicate(keep, duplicate)
+        _messages.tryEmit("Merged into one payment")
+    }
+
+    fun keepBoth(a: Transaction, b: Transaction) = viewModelScope.launch {
+        finance.dismissDuplicate(a, b)
+        _messages.tryEmit("Kept both payments")
     }
 
     fun confirmAll(txs: List<Transaction>) = viewModelScope.launch {

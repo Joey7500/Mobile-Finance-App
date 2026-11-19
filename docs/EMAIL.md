@@ -87,6 +87,9 @@ balance, set *Top-up names* to `REVOLUT`, and map the Revolut app to it under
 | Situation | Result |
 |---|---|
 | Wallet tap → George notification → ČS e-mail (6 min) | 1 transaction, sources *Wallet · App · E-mail ✓* |
+| ČS e-mail hours later or the next morning (it states only the date) | still the same transaction: matched to the payment of that day |
+| Phone was off: the George push arrives in the morning | merged with the evening's e-mail (up to 12 h) |
+| The same e-mail fetched again (restore, new phone) | recognised, no duplicate |
 | ČS e-mail "z účtu ČS … na účet KB" | −X on ČS, +X expected on KB (internal transfer) |
 | KB e-mail "připsána platba z účtu ČS" later | confirms the expected +X, no duplicate |
 | ČS card payment "u Revolut**…", Revolut "Money added" | −X on ČS, +X on Revolut, both internal transfer |

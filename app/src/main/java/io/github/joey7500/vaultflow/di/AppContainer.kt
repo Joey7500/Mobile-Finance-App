@@ -58,6 +58,11 @@ class AppContainer(context: Context) {
                 runCatching { finance.repairDuplicates() }
                 settings.put(SettingsStore.DUPLICATE_REPAIR_DONE, "done")
             }
+            // 1.2.0: one message stored twice, repeated transfer counterparts (provably safe).
+            if (settings.get(SettingsStore.DUPLICATE_REPAIR_V2_DONE) == null) {
+                runCatching { finance.repairProvableDuplicates() }
+                settings.put(SettingsStore.DUPLICATE_REPAIR_V2_DONE, "done")
+            }
         }
         initialized = true
     }

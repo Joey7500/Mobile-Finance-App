@@ -58,8 +58,9 @@ class EmailSync(
             }
             val handled = finance.ingestMessage(
                 IncomingMessage(Channel.EMAIL, "mail:" + m.from, m.messageId, m.receivedAtMillis, m.subject, m.text),
+                processedKey = key,
             )
-            finance.markProcessed(key, handled)
+            if (!handled) finance.markProcessed(key, handled = false)
             if (handled) processed++
         }
         finance.purgeProcessed()
