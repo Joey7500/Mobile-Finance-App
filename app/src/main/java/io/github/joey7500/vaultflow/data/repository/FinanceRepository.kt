@@ -159,6 +159,8 @@ class FinanceRepository(
                         )
                     },
                 )
+            } else {
+                addMissingDefaultCategories(budgets)
             }
             if (settings.get(SettingsStore.RESERVE_FLOOR_MINOR) == null) {
                 settings.putLong(SettingsStore.RESERVE_FLOOR_MINOR, ReserveCalculator.DEFAULT_FLOOR_MINOR)
@@ -166,6 +168,33 @@ class FinanceRepository(
             if (db.senders().get(NotificationParser.GOOGLE_WALLET_PACKAGE) == null) {
                 db.senders().upsert(SenderEntity(NotificationParser.GOOGLE_WALLET_PACKAGE, enabled = true, accountId = null, seenCount = 0, lastSeenMillis = 0))
             }
+        }
+    }
+
+    /**
+     * Default categories added by an update (1.4.0: Clothing, Drugstore & pharmacy) appear once,
+     * next to their neighbours. A category you already made with the same name is adopted
+     * (it gets the key) instead of being duplicated. Nothing is moved or re-categorised.
+     */
+    private suspend fun addMissingDefaultCategories(budgets: Map<String, Long>) {
+        val existing = db.categories().getAll()
+        val keys = existing.mapNotNull { it.key }.toMutableSet()
+        DefaultCategories.all.forEachIndexed { i, t ->
+            if (t.key in keys) return@forEachIndexed
+            val own = existing.firstOrNull { it.key == null && !it.archived && it.name.trim().equals(t.name, ignoreCase = true) }
+            if (own != null) {
+                db.categories().update(own.copy(key = t.key))
+            } else {
+                val before = DefaultCategories.all.take(i).lastOrNull { it.key in keys }
+                val order = existing.firstOrNull { it.key == before?.key }?.sortOrder?.plus(5) ?: (i * 10)
+                db.categories().insert(
+                    CategoryEntity(
+                        key = t.key, name = t.name, groupName = t.group, kind = t.kind.name,
+                        monthlyBudgetMinor = budgets[t.key] ?: t.budgetMinor, sortOrder = order,
+                    ),
+                )
+            }
+            keys += t.key
         }
     }
 
@@ -200,7 +229,7 @@ class FinanceRepository(
             .filter { it.id != txId && (it.categoryId == null || it.confidence < Classifier.CONFIDENCE_THRESHOLD) && !it.categoryLocked && it.note != "set by you" }
             .filter {
                 matcher.classify(
-                    it.merchant, amountMinor = it.amountCzkMinor, description = it.description, counterpartyAccount = it.counterpartyAccount,
+                    it.merchant, amountMinor = it.amountCzkMinor, description = it.description, counterpartyAccount = it.counterpartyAccount, currency = it.currency,
                 ).categoryId == categoryId
             }
             .forEach { db.transactions().update(it.copy(categoryId = categoryId, confidence = confidence, note = "your rule: \"${rule.pattern}\"")) }

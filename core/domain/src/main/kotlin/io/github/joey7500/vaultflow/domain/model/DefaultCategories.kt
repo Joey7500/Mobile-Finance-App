@@ -26,7 +26,9 @@ object DefaultCategories {
         CategoryTemplate(CategoryKeys.TRAVELLING, "Travelling", "Lifestyle", FlowKind.EXPENSE, 0),
         CategoryTemplate(CategoryKeys.FUN, "Fun & sport", "Lifestyle", FlowKind.EXPENSE, 0),
         CategoryTemplate(CategoryKeys.HOLIDAY, "Holiday", "Lifestyle", FlowKind.EXPENSE, 0),
+        CategoryTemplate(CategoryKeys.CLOTHING, "Clothing", "Lifestyle", FlowKind.EXPENSE, 0),
 
+        CategoryTemplate(CategoryKeys.DRUGSTORE, "Drugstore & pharmacy", "Other", FlowKind.EXPENSE, 0),
         CategoryTemplate(CategoryKeys.OTHER_EXPENSES, "Other expenses", "Other", FlowKind.EXPENSE, 0),
         CategoryTemplate(CategoryKeys.UNCERTAIN, "Uncertain", "Other", FlowKind.EXPENSE, 0),
 

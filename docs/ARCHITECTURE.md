@@ -9,7 +9,8 @@ VaultFlow/
 │   ├── ingest/       AmountParser, NotificationParser, BankMessageParser + PaymentDetails,
 │   │                 Deduplicator, IngestionPipeline, EmailFirst, Reenricher, DuplicateRepair
 │   ├── classify/     Classifier (own accounts → your rules → payment-message keywords → learned rules
-│   │                 → dictionary → context),
+│   │                 → dictionary → context; then: paid abroad → Holiday), Abroad,
+│   │                 CategoryDictionary (data files in resources/.../classify/dictionary/*.tsv),
 │   │                 MerchantNormalizer, CategoryDictionary, RuleLearning
 │   ├── wealth/       NetWorth pillars, GoldMath
 │   ├── fx/           ČNB daily-rate parser
@@ -62,6 +63,9 @@ flowchart LR
 | On-device classifier, no LLM | Transactions never leave the phone; $0 running cost. Learned rules cover the long tail. See `LLM_CLASSIFIER_ANALYSIS.md`. |
 | E-mail first | A push books the money at once; for accounts whose bank e-mails every payment it is provisional ("awaiting e-mail") until the e-mail names it (shop, counterparty or payment message), adds the description, counterparty account and symbols, and re-classifies. The wait times out (default 3 h). |
 | Name by information, not by source | Generic bank titles rank 0; e-mail > Wallet > push; a Wallet brand beats the e-mail descriptor of the same shop. Each record stores where its name came from (`nameSource`). |
+| Dictionary as data files | ~1,850 shops, companies and words (Czech, French, German, international; words in Czech, English, French, German) in plain `.tsv` files, one per country plus words, payment messages and income. Adding a shop is a one-line change; tests check every entry and ~200 realistic terminal names. Matching uses a prefix index (one pass per text), so the size does not slow capture down. |
+| Paid abroad → Holiday | A shop that exists only abroad (flag `abroad`: E.Leclerc, SNCF, Rewe, "boulangerie", "péage"), or two hints (foreign currency, foreign town, country code, foreign legal form), or a known shop paid in a foreign currency, is Holiday. One hint alone is a suggestion. Online services (flag `online`) and anything naming a Czech town are never abroad; transfers to someone's account neither. |
+| First names are not shops | Brands that are also names (flag `person`: Albert, Paul, Penny, Müller) are ignored for transfers to a person and rank below a word that names the kind of shop ("Bäckerei Müller" is a bakery). |
 | Your category is a lock | `categoryLocked` (DB v6) instead of the note text: no report, rule or re-check changes it. |
 | Payment message classifies | "padel", "nájem", "obědy" in the message decide the category (0.9); rules also match the counterparty account, so a rule on a friend's account keeps working when the e-mail names the payment differently. |
 | Guesses are applied but flagged | A result below 0.8 confidence keeps its category with low confidence and appears under *Quick review*; nothing matched = Uncertain. Two consistent corrections of a merchant make a trusted learned rule; "always" makes one immediately. |

@@ -50,7 +50,7 @@ object Reenricher {
             val account = ctx.accounts.firstOrNull { it.id == t.accountId }
             val c = Classifier(ctx.rules, categoryKinds = ctx.categoryKindById).classify(
                 name, listOfNotNull(mail.title, mail.text).joinToString(" "), t.amountMinor, account?.type,
-                description = description, counterpartyAccount = counterparty,
+                description = description, counterpartyAccount = counterparty, currency = t.currency,
             )
             val newId = c.categoryId ?: c.categoryKey?.let(ctx.categoryIdByKey::get)
             val better = c.confidence >= Classifier.CONFIDENCE_THRESHOLD || t.categoryId == null || t.confidence < Classifier.CONFIDENCE_THRESHOLD

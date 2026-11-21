@@ -27,6 +27,8 @@ object CategoryKeys {
     const val TRAVELLING = "travelling"
     const val FUN = "fun"
     const val HOLIDAY = "holiday"
+    const val CLOTHING = "clothing"
+    const val DRUGSTORE = "drugstore"
     const val OTHER_EXPENSES = "other_expenses"
     const val UNCERTAIN = "uncertain"
     const val INVESTMENTS = "investments"

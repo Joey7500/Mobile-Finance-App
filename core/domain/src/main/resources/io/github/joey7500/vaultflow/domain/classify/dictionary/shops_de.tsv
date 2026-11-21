@@ -1,0 +1,61 @@
+# VaultFlow built-in dictionary: Germany and Austria. Format: see shops_cz.tsv.
+# Shops that exist only abroad carry the "abroad" flag: a payment there is booked as Holiday.
+# Umlauts: write "Bäckerei"; also list the "ae/oe/ue" spelling terminals use ("BAECKEREI").
+
+# ───────────── Groceries ─────────────
+@groceries BRAND abroad
+REWE; EDEKA; ALDI; MARKTKAUF; TEGUT; ALNATURA; DENNS BIOMARKT; DENN S; BIOCOMPANY; FAMILA; NAH UND GUT; INTERSPAR
+EUROSPAR; MPREIS; UNIMARKT; NETTO MARKEN; BILLA PLUS; LIDL DIENSTLEISTUNG
+@groceries BRAND whole abroad
+ADEG
+@groceries BRAND whole abroad person
+HOFER
+
+# ───────────── Drugstore & pharmacy ─────────────
+@drugstore BRAND abroad
+BUDNI; BIPA; MUELLER DROGERIE; MULLER DROGERIE; DM-DROGERIE MARKT GMBH
+@drugstore BRAND whole abroad person
+MUELLER; MULLER
+
+# ───────────── Eating out ─────────────
+@eating_out BRAND abroad
+BACKWERK; KAMPS; NORDSEE; DITSCH; HANS IM GLUCK; HANS IM GLUECK; BLOCK HOUSE; WIENERWALD; ANKERBROT; STROCK
+DER BECK; BACKFACTORY; LE CROBAG; JOEY S PIZZA; LIEFERANDO; MAREDO; AUGUSTINER; HOFBRAUHAUS; HOFBRAEUHAUS
+
+# ───────────── Travelling ─────────────
+@travelling BRAND abroad
+DB VERTRIEB; DB FERNVERKEHR; DB REGIO; DB BAHN; DEUTSCHE BAHN; BAHN.DE; BAHNCARD; OEBB; WESTBAHN; FLIXTRAIN
+WIENER LINIEN; ARAL; JET TANKSTELLE; STAR TANKSTELLE; HEM TANKSTELLE; TANK & RAST; ASFINAG; CONTIPARK; SIXT GMBH
+@travelling BRAND whole abroad
+OBB; MVV; MVG; BVG; HVV; RMV; VVS; VRR; KVB; VBB; VGN; AVV; VOR; JET
+
+# ───────────── Fun & sport ─────────────
+@fun BRAND abroad
+MEDIAMARKT; MEDIA MARKT; THALIA; HUGENDUBEL; CINEMAXX; UCI KINO; KINOPOLIS; CINEPLEX; EUROPA-PARK; EUROPA PARK
+PHANTASIALAND; LEGOLAND DEUTSCHLAND; TIERPARK HELLABRUNN; ZILLERTAL ARENA; SKI AMADE; SKIWELT; STUBAIER
+KITZBUEHEL BERGBAHN; KITZBUHEL BERGBAHN; SCHMITTENHOHE; SCHMITTENHOEHE
+@fun BRAND whole abroad
+SATURN
+
+# ───────────── Holiday ─────────────
+@holiday BRAND
+MOTEL ONE; A&O HOSTEL; MEININGER; PRIZEOTEL; EUROWINGS; CONDOR; AUSTRIAN AIRLINES; SWISS AIR; SWISS INTERNATIONAL AIR
+
+# ───────────── Clothing ─────────────
+@clothing BRAND abroad
+PEEK & CLOPPENBURG; PEEK UND CLOPPENBURG; GALERIA KAUFHOF; GALERIA KARSTADT; BREUNINGER; KAUFHAUS
+@clothing BRAND whole abroad
+P&C
+
+# ───────────── Other ─────────────
+@other_expenses BRAND abroad
+TOOM; HAGEBAU; DEHNER; FRESSNAPF; DEUTSCHE POST; POSTFILIALE; OSTERREICHISCHE POST; OESTERREICHISCHE POST
+TABAK TRAFIK; ROLLER MOBEL; POCO DOMANE
+
+# ───────────── More German and Austrian chains ─────────────
+@eating_out BRAND abroad
+BURGERME; DEAN & DAVID; CAFE DEL SOL; JIM BLOCK; BACKHAUS; EISCAFE; EISDIELE
+@fun BRAND abroad
+SPORTSCHECK; GLOBETROTTER
+@holiday BRAND
+INTERCITYHOTEL

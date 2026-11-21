@@ -138,7 +138,7 @@ object IngestionPipeline {
 
         val classification = Classifier(ctx.rules, categoryKinds = ctx.categoryKindById).classify(
             merchant, listOfNotNull(msg.title, msg.text).joinToString(" "), parsed.amountMinor, sourceAccount?.type,
-            description = description, counterpartyAccount = details.counterpartyAccount,
+            description = description, counterpartyAccount = details.counterpartyAccount, currency = parsed.currency,
         )
         // Confident results and suggestions both get their category; a suggestion keeps its low
         // confidence so it shows up under "Quick review" instead of silently counting as certain.

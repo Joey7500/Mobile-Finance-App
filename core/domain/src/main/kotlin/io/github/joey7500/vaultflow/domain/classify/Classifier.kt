@@ -78,7 +78,9 @@ class Classifier(
      *
      * Order: your own accounts, your rules (name, then counterparty account, then message
      * words), keywords in the payment message, learned rules (same order), the built-in
-     * dictionary on the name, then context.
+     * dictionary on the name, then context. A card payment made abroad (see [Abroad]) is
+     * Holiday, whatever the shop: confidently when sure, as a suggestion on a single hint.
+     * [currency] is the payment's original currency.
      */
     fun classify(
         merchant: String,
@@ -87,11 +89,37 @@ class Classifier(
         accountType: AccountType? = null,
         description: String = "",
         counterpartyAccount: String? = null,
+        currency: String = "CZK",
     ): Classification {
         val compactText = (merchant + " " + rawText).uppercase().filter(Char::isLetterOrDigit)
         if (ownIds.any { compactText.contains(it) }) {
             return Classification(null, CategoryKeys.INTERNAL_TRANSFER, 1.0, "mentions one of your own accounts", ClassificationTier.OWN_ACCOUNT)
         }
+        val base = classifyByRules(merchant, rawText, amountMinor, accountType, description, counterpartyAccount)
+        // Abroad: card payments only (a transfer to someone's account says nothing about where you were).
+        if (amountMinor < 0 && counterpartyAccount == null) {
+            val texts = listOf(MerchantNormalizer.canonical(merchant), TextNormalizer.merchantKey(merchant)).distinct()
+            Abroad.check(merchant, currency, texts)?.let { v ->
+                // A shop the app knows (a restaurant, Lidl, a pharmacy) paid in euros is a shop abroad.
+                if (v.confident || (v.foreignCurrency && base.isConfident)) {
+                    return Classification(null, CategoryKeys.HOLIDAY, ABROAD_CONFIDENCE, "paid abroad: ${v.reason}", ClassificationTier.CONTEXT)
+                }
+                if (!base.isConfident) {
+                    return Classification(null, CategoryKeys.HOLIDAY, ABROAD_HINT_CONFIDENCE, "abroad? ${v.reason}", ClassificationTier.CONTEXT)
+                }
+            }
+        }
+        return base
+    }
+
+    private fun classifyByRules(
+        merchant: String,
+        rawText: String,
+        amountMinor: Long,
+        accountType: AccountType?,
+        description: String,
+        counterpartyAccount: String?,
+    ): Classification {
         val incoming = amountMinor >= 0
         val key = TextNormalizer.merchantKey(merchant)
         val canon = MerchantNormalizer.canonical(merchant)
@@ -111,11 +139,17 @@ class Classifier(
 
         val merchantTexts = listOfNotNull(canon, key, message.takeIf { it.length >= 3 }).distinct()
         val raw = TextNormalizer.merchantKey(rawText)
-        return if (incoming) classifyIncoming(merchantTexts, raw, amountMinor) else classifyOutgoing(merchantTexts, raw, accountType)
+        // A payment to someone's account: "Albert" or "Paul" there is a person, not the shop.
+        val toPerson = counterpartyAccount != null
+        return if (incoming) {
+            classifyIncoming(merchantTexts, raw, amountMinor, toPerson)
+        } else {
+            classifyOutgoing(merchantTexts, raw, accountType, toPerson)
+        }
     }
 
-    private fun classifyOutgoing(merchantTexts: List<String>, raw: String, accountType: AccountType?): Classification {
-        CategoryDictionary.matchOut(merchantTexts, raw)?.let { m ->
+    private fun classifyOutgoing(merchantTexts: List<String>, raw: String, accountType: AccountType?, toPerson: Boolean): Classification {
+        CategoryDictionary.matchOut(merchantTexts, raw, toPerson)?.let { m ->
             return Classification(null, m.entry.categoryKey, m.confidence, "built-in: ${m.entry.keyword}", ClassificationTier.DICTIONARY)
         }
         val all = merchantTexts + raw
@@ -128,12 +162,12 @@ class Classifier(
         return Classification.UNKNOWN
     }
 
-    private fun classifyIncoming(merchantTexts: List<String>, raw: String, amountMinor: Long): Classification {
+    private fun classifyIncoming(merchantTexts: List<String>, raw: String, amountMinor: Long, toPerson: Boolean): Classification {
         CategoryDictionary.matchIn(merchantTexts, raw)?.let { m ->
             return Classification(null, m.entry.categoryKey, m.confidence, "built-in: ${m.entry.keyword}", ClassificationTier.DICTIONARY)
         }
         // Money back from a shop = a refund that lowers that category's spend.
-        val shop = CategoryDictionary.matchOut(merchantTexts, raw)
+        val shop = CategoryDictionary.matchOut(merchantTexts, raw, toPerson)
         val refund = CategoryDictionary.isRefund(merchantTexts, raw)
         if (shop != null) {
             val confidence = if (refund) CategoryDictionary.Strength.KEYWORD.confidence else CategoryDictionary.Strength.WEAK.confidence
@@ -186,6 +220,12 @@ class Classifier(
 
     companion object {
         const val CONFIDENCE_THRESHOLD = 0.8
+
+        /** A payment surely made abroad is Holiday. */
+        const val ABROAD_CONFIDENCE = 0.9
+
+        /** One hint of abroad (a foreign currency, a foreign town): a Holiday suggestion to review. */
+        const val ABROAD_HINT_CONFIDENCE = 0.7
 
         /** Incoming payments of at least 15 000 Kč from a company may be a salary. */
         const val LARGE_INCOME_MINOR = 15_000_00L

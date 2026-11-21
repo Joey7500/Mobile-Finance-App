@@ -23,7 +23,7 @@ Czech (keep quoted Czech notification/e-mail text as it is).
 - Before pushing, run `gitleaks git --redact -v` (full history) and make sure it
   reports no leaks.
 
-## Current state (v1.3.0, versionCode 4, DB v6)
+## Current state (v1.4.0, versionCode 5, DB v6)
 
 - The **signed release build** (`io.github.joey7500.vaultflow`) is installed on
   the owner's phone (Xiaomi 14T, HyperOS) with real data. The debug app was
@@ -45,6 +45,11 @@ Czech (keep quoted Czech notification/e-mail text as it is).
   Quick review, **e-mail first** (1.3.0: the bank e-mail names and classifies a
   payment; per-account "Bank e-mails are the main source"; ⏳ badge; 3 h wait;
   "Re-check names from e-mails"). Category "Fun & hobbies" is now "Fun & sport".
+  1.4.0: built-in dictionary of ~1,850 entries in data files
+  (`core/domain/src/main/resources/.../classify/dictionary/*.tsv`, CZ/FR/DE/intl,
+  words in CZ/EN/FR/DE), payments abroad → Holiday (`Abroad`), new categories
+  "Clothing" and "Drugstore & pharmacy" (added to existing installs on start).
+  Owner's choices: abroad = Holiday always; old payments are not re-classified.
 
 ## Owner's PC (Windows) – build environment
 

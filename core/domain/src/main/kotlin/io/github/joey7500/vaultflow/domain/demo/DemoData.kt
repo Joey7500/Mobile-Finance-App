@@ -38,6 +38,8 @@ object DemoData {
         CategoryKeys.TRAVELLING to Money.ofUnits(2_500L),
         CategoryKeys.FUN to Money.ofUnits(3_000L),
         CategoryKeys.HOLIDAY to Money.ofUnits(3_000L),
+        CategoryKeys.CLOTHING to Money.ofUnits(1_500L),
+        CategoryKeys.DRUGSTORE to Money.ofUnits(800L),
         CategoryKeys.OTHER_EXPENSES to Money.ofUnits(2_000L),
         CategoryKeys.INVESTMENTS to Money.ofUnits(10_000L),
     )
@@ -87,7 +89,7 @@ object DemoData {
             add(18, -390, "RegioJet", CategoryKeys.TRAVELLING)
             add(14, -890, "Decathlon", CategoryKeys.FUN, TransactionSource.GOOGLE_WALLET)
             add(21, -350, "Squash court booking", CategoryKeys.FUN)
-            add(16, -420, "Dr.Max", CategoryKeys.OTHER_EXPENSES, TransactionSource.GOOGLE_WALLET)
+            add(16, -420, "Dr.Max", CategoryKeys.DRUGSTORE, TransactionSource.GOOGLE_WALLET)
             add(23, 1_500, "Gift from family", CategoryKeys.GIFTS)
             add(25, 400, "Friend paid back dinner", CategoryKeys.EATING_OUT)
             add(20, -450, "GOPAY *OBCHOD", null)

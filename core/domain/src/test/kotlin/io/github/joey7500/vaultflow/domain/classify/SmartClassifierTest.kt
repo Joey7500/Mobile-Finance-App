@@ -50,12 +50,14 @@ class SmartClassifierTest {
 
     @Test fun `brand beats generic keyword`() {
         // "COSTA COFFEE" is a brand (eating out); "HOTEL" alone would be a holiday keyword.
-        assertEquals(CategoryKeys.GROCERIES, out("Albert Hotel Lobby").categoryKey)
+        assertEquals(CategoryKeys.GROCERIES, out("Billa Hotel Lobby").categoryKey)
+        // A brand that is also a first name ranks below the kind of place: "Hotel Albert" is a hotel.
+        assertEquals(CategoryKeys.HOLIDAY, out("Hotel Albert").categoryKey)
         assertEquals(DICTIONARY, out("Costa Coffee").tier)
     }
 
     @Test fun `generic keywords per category`() {
-        assertEquals(CategoryKeys.OTHER_EXPENSES, out("Lékárna U Zlatého Hada").categoryKey)
+        assertEquals(CategoryKeys.DRUGSTORE, out("Lékárna U Zlatého Hada").categoryKey)
         assertEquals(CategoryKeys.EATING_OUT, out("Restaurace Na Rohu").categoryKey)
         assertEquals(CategoryKeys.TRAVELLING, out("Parkování Centrum").categoryKey)
         assertEquals(CategoryKeys.HOLIDAY, out("Penzion Na Kopci").categoryKey)

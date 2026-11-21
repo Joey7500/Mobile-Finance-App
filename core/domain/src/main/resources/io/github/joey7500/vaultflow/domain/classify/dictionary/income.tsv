@@ -1,0 +1,18 @@
+# VaultFlow built-in dictionary: words that classify money coming IN (name or message of the
+# incoming payment), in Czech, English, French and German. Format: see shops_cz.tsv.
+
+@salary BRAND
+MZDA; MZDY; VYPLATA; SALARY; PAYROLL; GEHALT; SALAIRE
+@salary KEYWORD whole
+PLAT; LOHN; PAIE
+
+@other_income KEYWORD
+VRATKA DANE; PREPLATEK; UROK; INTEREST; CASHBACK; DIVIDEND; STIPENDI; DUCHOD; RENTE; ZINSEN; INTERETS; HONORAR
+RODICOVSK; PRIDAVEK NA DITE; NEMOCENSK; PODPORA V NEZAMESTNANOSTI
+
+@gifts KEYWORD
+DAREK; GIFT; NAROZENIN; CADEAU; GESCHENK; ANNIVERSAIRE; GEBURTSTAG
+@gifts KEYWORD whole
+DAR
+@gifts WEAK
+VANOCE; SVATB; CHRISTMAS; WEIHNACHT; HOCHZEIT; MARIAGE
