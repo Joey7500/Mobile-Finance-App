@@ -48,7 +48,10 @@ data class BudgetUiState(
             return transactions.filter { it.categoryId == null || it.categoryId == uncertainId || it.categoryId !in known }
         }
 
-    /** Categorised by a guess (weak keyword, first-time learned rule...): quick to confirm or change. */
+    /**
+     * Categorised by a guess (weak keyword, first-time learned rule...): quick to confirm or change.
+     * A push still waiting for its bank e-mail is left out: the e-mail will name and classify it.
+     */
     val toReview: List<Transaction>
         get() {
             val uncertainId = categories.firstOrNull { it.isUncertain }?.id
@@ -56,7 +59,8 @@ data class BudgetUiState(
             return transactions.filter {
                 it.categoryId != null && it.categoryId != uncertainId && it.categoryId in known &&
                     it.confidence > 0.0 && it.confidence < io.github.joey7500.vaultflow.domain.classify.Classifier.CONFIDENCE_THRESHOLD &&
-                    it.note != "set by you"
+                    !it.categoryLocked && it.note != "set by you" &&
+                    !(it.awaitingEmail && io.github.joey7500.vaultflow.domain.model.TransactionSource.EMAIL !in it.evidence)
             }
         }
 
@@ -94,6 +98,11 @@ class BudgetViewModel(private val finance: FinanceRepository) : ViewModel() {
             BudgetUiState(view.period, view.isCurrent, true, summary, reserve, view.transactions, view.categories, accounts, suspects)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BudgetUiState())
+
+    init {
+        // Pushes whose bank e-mail did not come in time become final (badge off, Quick review on).
+        viewModelScope.launch { runCatching { finance.finalizeAwaitingEmail() } }
+    }
 
     /** Shown period relative to the current one (for opening drill-downs on the same period). */
     val periodOffset: Int get() = offset.value

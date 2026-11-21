@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import io.github.joey7500.vaultflow.domain.model.Account
 import io.github.joey7500.vaultflow.domain.model.Category
 import io.github.joey7500.vaultflow.domain.model.Transaction
+import io.github.joey7500.vaultflow.domain.model.TransactionSource
 import io.github.joey7500.vaultflow.domain.model.TransactionStatus
 import io.github.joey7500.vaultflow.ui.components.CategoryList
 import io.github.joey7500.vaultflow.ui.components.CheckRow
@@ -34,7 +35,10 @@ import io.github.joey7500.vaultflow.ui.components.money
 import io.github.joey7500.vaultflow.ui.components.moneyColor
 import io.github.joey7500.vaultflow.ui.theme.VaultColors
 
-/** One transaction line: merchant, time · category · sources, amount. */
+/** Booked from a push; its bank e-mail (name, payment message, category) is still expected. */
+fun Transaction.isWaitingForEmail(): Boolean = awaitingEmail && TransactionSource.EMAIL !in evidence
+
+/** One transaction line: name, payment message, time · category · sources (or ⏳ e-mail), amount. */
 @Composable
 fun TransactionRow(tx: Transaction, subtitle: String, onClick: () -> Unit) {
     Row(
@@ -43,9 +47,13 @@ fun TransactionRow(tx: Transaction, subtitle: String, onClick: () -> Unit) {
     ) {
         Column(Modifier.weight(1f)) {
             Text(tx.merchant, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (tx.description.isNotBlank()) {
+                Text(tx.description, style = MaterialTheme.typography.bodySmall, color = VaultColors.Sky, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            val sources = if (tx.isWaitingForEmail()) "⏳ e-mail" else evidenceLabel(tx.evidence)
             Text(
                 formatDateTime(tx.timestampMillis) + " · " + subtitle + (if (tx.status == TransactionStatus.PENDING) " · pending" else "") +
-                    evidenceLabel(tx.evidence).let { if (it.isBlank()) "" else " · $it" },
+                    sources.let { if (it.isBlank()) "" else " · $it" },
                 style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
@@ -70,7 +78,7 @@ fun TransactionDialog(
     onDismiss: () -> Unit,
 ) {
     // Uncategorised or only guessed: offer to remember the choice by default.
-    var learn by remember { mutableStateOf(tx.categoryId == null || (tx.confidence < 0.8 && tx.note != "set by you")) }
+    var learn by remember { mutableStateOf(tx.categoryId == null || (tx.confidence < 0.8 && !tx.categoryLocked && tx.note != "set by you")) }
     var confirmDelete by remember { mutableStateOf(false) }
     if (confirmDelete) {
         AlertDialog(
@@ -93,6 +101,16 @@ fun TransactionDialog(
                         evidenceLabel(tx.evidence).let { if (it.isBlank()) "" else " · $it" },
                     style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
                 )
+                if (tx.description.isNotBlank()) Text("Message: " + tx.description, style = MaterialTheme.typography.bodySmall, color = VaultColors.Sky)
+                val party = listOfNotNull(tx.counterpartyAccount?.let { "Account $it" }, tx.symbols.takeIf { it.isNotBlank() })
+                if (party.isNotEmpty()) Text(party.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
+                if (tx.isWaitingForEmail()) {
+                    Text(
+                        "⏳ Waiting for the bank e-mail (usually ~6 min): it sets the name, the payment message and the category. " +
+                            "A category you pick now stays.",
+                        style = MaterialTheme.typography.bodySmall, color = VaultColors.Amber,
+                    )
+                }
                 if (tx.note.isNotBlank()) Text(tx.note, style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted)
                 Spacer(Modifier.height(8.dp))
                 CheckRow(learn, { learn = it }, "Always classify this merchant like this")

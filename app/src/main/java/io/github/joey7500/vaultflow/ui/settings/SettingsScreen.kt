@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -51,6 +52,7 @@ import io.github.joey7500.vaultflow.BuildConfig
 import io.github.joey7500.vaultflow.domain.backup.BackupCrypto
 import io.github.joey7500.vaultflow.domain.model.Account
 import io.github.joey7500.vaultflow.domain.model.AccountType
+import io.github.joey7500.vaultflow.domain.model.EmailMode
 import io.github.joey7500.vaultflow.domain.model.FlowKind
 import io.github.joey7500.vaultflow.ui.LocalSnackbar
 import io.github.joey7500.vaultflow.ui.components.BalanceCheckLine
@@ -376,8 +378,8 @@ fun SettingsScreen(onRestartRequested: () -> Unit) {
         AccountDialog(
             existing = editAccount,
             currentBalance = editAccount?.let { state.balances[it.id] },
-            onSave = { name, type, bal, liquid, ids, cards, aliases, overdraft ->
-                vm.saveAccount(editAccount, name, type, bal, liquid, ids, cards, aliases, overdraft)
+            onSave = { name, type, bal, liquid, ids, cards, aliases, overdraft, emailMode ->
+                vm.saveAccount(editAccount, name, type, bal, liquid, ids, cards, aliases, overdraft, emailMode)
                 editAccount = null
                 addingAccount = false
             },
@@ -437,12 +439,20 @@ private fun friendlyPackage(pkg: String): String = when {
     else -> pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() }
 }
 
+private fun emailModeLabel(m: EmailMode): String = when (m) {
+    EmailMode.AUTO -> "Auto"
+    EmailMode.ALL -> "All payments"
+    EmailMode.TRANSFERS -> "Transfers only"
+    EmailMode.OFF -> "Off"
+}
+
 @Composable
 private fun GmailCard(vm: SettingsViewModel) {
     val context = LocalContext.current
     val has by vm.hasGmail.collectAsStateWithLifecycle()
     val saved by vm.gmailAddress.collectAsStateWithLifecycle()
     val status by vm.emailStatus.collectAsStateWithLifecycle()
+    val waitHours by vm.emailWaitHours.collectAsStateWithLifecycle()
     var address by remember(saved) { mutableStateOf(saved) }
     var password by remember { mutableStateOf("") }
     GlassCard {
@@ -470,6 +480,18 @@ private fun GmailCard(vm: SettingsViewModel) {
         }
         if (has) {
             Text(status, style = MaterialTheme.typography.bodySmall, color = if (status.contains("Error")) VaultColors.Amber else VaultColors.Muted)
+            Spacer(Modifier.height(8.dp))
+            Text("Wait for the bank e-mail", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                io.github.joey7500.vaultflow.domain.ingest.EmailFirst.WAIT_CHOICES_HOURS.forEach { h ->
+                    FilterChip(selected = waitHours == h, onClick = { vm.setEmailWait(h) }, label = { Text("$h h") })
+                }
+            }
+            Text(
+                "On accounts whose e-mails are the main source (Settings → Accounts), a notification shows ⏳ until its " +
+                    "e-mail names the payment. After this time the notification's name and category stay.",
+                style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+            )
             TextButton(onClick = { vm.clearGmail(context) }) { Text("Disconnect", color = VaultColors.Rose) }
         }
     }
@@ -479,7 +501,7 @@ private fun GmailCard(vm: SettingsViewModel) {
 private fun AccountDialog(
     existing: Account?,
     currentBalance: Long?,
-    onSave: (String, AccountType, Long, Boolean, String, String, String, Long) -> Unit,
+    onSave: (String, AccountType, Long, Boolean, String, String, String, Long, EmailMode) -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -491,6 +513,7 @@ private fun AccountDialog(
     var cards by remember { mutableStateOf(existing?.cardIdentifiers?.joinToString("\n") ?: "") }
     var aliases by remember { mutableStateOf(existing?.transferAliases?.joinToString("\n") ?: "") }
     var overdraft by remember { mutableStateOf(existing?.overdraftMinor?.takeIf { it > 0 }?.let { minorToInput(it) } ?: "") }
+    var emailMode by remember { mutableStateOf(existing?.emailMode ?: EmailMode.AUTO) }
     val parsed = parseMoneyInput(balance)
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -524,9 +547,21 @@ private fun AccountDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 MoneyField(overdraft, { overdraft = it }, "Overdraft / kontokorent (learned from e-mails)")
+                Text("Bank e-mails are the main source", style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    EmailMode.entries.forEach { m ->
+                        FilterChip(selected = emailMode == m, onClick = { emailMode = m }, label = { Text(emailModeLabel(m)) })
+                    }
+                }
+                Text(
+                    "A notification is booked at once. With e-mails as the main source it shows ⏳ until the bank e-mail " +
+                        "names it (shop or person, payment message) and sets the category. Auto: all payments for " +
+                        "Česká spořitelna, transfers for other banks that e-mail, off without bank e-mails.",
+                    style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+                )
             }
         },
-        confirmButton = { TextButton(enabled = parsed != null, onClick = { parsed?.let { onSave(name, type, it, liquid, ids, cards, aliases, parseMoneyInput(overdraft) ?: 0L) } }) { Text("Save") } },
+        confirmButton = { TextButton(enabled = parsed != null, onClick = { parsed?.let { onSave(name, type, it, liquid, ids, cards, aliases, parseMoneyInput(overdraft) ?: 0L, emailMode) } }) { Text("Save") } },
         dismissButton = {
             Row {
                 if (existing != null) TextButton(onClick = onDelete) { Text("Delete", color = VaultColors.Rose) }

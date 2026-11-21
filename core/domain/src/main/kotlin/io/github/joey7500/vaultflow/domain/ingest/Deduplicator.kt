@@ -209,53 +209,105 @@ object Deduplicator {
         else -> 0
     }
 
-    /** Which source has the nicest MERCHANT name (Wallet shows the brand). */
-    private fun merchantRank(s: TransactionSource) = when (s) {
-        GOOGLE_WALLET -> 4
-        BANK_NOTIFICATION -> 3
-        MANUAL -> 3
-        EMAIL -> 2
-        else -> 0
+    /** Where a record's name came from (older records: derived from their evidence). */
+    fun nameSourceOf(t: Transaction): TransactionSource = t.nameSource ?: when {
+        t.evidence.size == 1 -> t.evidence.single()
+        GOOGLE_WALLET in t.evidence -> GOOGLE_WALLET // older versions preferred the Wallet name
+        BANK_NOTIFICATION in t.evidence -> BANK_NOTIFICATION
+        else -> t.source
     }
 
     /**
-     * Combines two reports of one payment into a single record: the bank's
-     * amount, the best merchant name, the earliest real timestamp, the
-     * category you already chose, and the union of all evidence.
+     * How informative a record's NAME is. Bank boilerplate ("Odešla platba", "Payment to
+     * 123/0800") is worth nothing; the bank e-mail names the shop or the counterparty from
+     * structured fields; Wallet shows a brand; the push title is the weakest real name.
      */
-    fun merge(existing: Transaction, incoming: Transaction): Transaction {
-        val amountSource = if (amountRank(incoming.source) > amountRank(existing.source)) incoming else existing
-        val merchantSource = listOf(existing, incoming)
-            .filter { it.merchant.isNotBlank() && it.source != INFERRED }
-            .maxByOrNull { merchantRank(it.source) }
-            ?: existing
-        val evidence = existing.evidence + incoming.evidence
-        val (timestamp, earliest) = mergedTime(existing, incoming)
-        val primary = if (existing.source == INFERRED && incoming.source != INFERRED) incoming.source else existing.source
-        // The category comes from the more confident report; a choice you made always stays.
-        val userChose = existing.confidence >= 1.0 && existing.categoryId != null
-        val categorySource = when {
-            userChose || incoming.categoryId == null -> existing
+    fun nameRank(t: Transaction): Int {
+        if (GenericNames.isGeneric(t.merchant)) return 0
+        return when (nameSourceOf(t)) {
+            MANUAL -> 5
+            EMAIL -> 4
+            GOOGLE_WALLET -> 3
+            INFERRED -> 1
+            else -> 2
+        }
+    }
+
+    /**
+     * The report whose name the fused record keeps: the most informative one, except that a
+     * Wallet brand beats the e-mail's terminal descriptor of the SAME shop
+     * ("Very Goodies" vs "NYX*VeryGoodiesas"). When the two disagree about the shop,
+     * the bank's descriptor is what was charged, so the e-mail wins.
+     */
+    private fun nameSourceRecord(existing: Transaction, incoming: Transaction): Transaction {
+        val named = listOf(existing, incoming).filter { nameRank(it) > 0 }
+        val wallet = named.firstOrNull { nameSourceOf(it) == GOOGLE_WALLET }
+        val mail = named.firstOrNull { nameSourceOf(it) == EMAIL }
+        if (wallet != null && mail != null && wallet !== mail && merchantsCompatible(wallet.merchant, mail.merchant)) return wallet
+        return if (nameRank(incoming) > nameRank(existing)) incoming else existing
+    }
+
+    /**
+     * The report whose category the fused record keeps. A category you picked never changes;
+     * otherwise the bank e-mail's classification (made from its name, payment message and
+     * counterparty account) replaces the push's guess, unless that would turn a confident
+     * category into a mere suggestion.
+     */
+    private fun categorySourceRecord(existing: Transaction, incoming: Transaction): Transaction {
+        val threshold = io.github.joey7500.vaultflow.domain.classify.Classifier.CONFIDENCE_THRESHOLD
+        val eMail = EMAIL in existing.evidence
+        val iMail = EMAIL in incoming.evidence
+        return when {
+            existing.categoryLocked -> existing
+            incoming.categoryLocked -> incoming
+            existing.confidence >= 1.0 && existing.categoryId != null -> existing // your rule / own transfer
+            incoming.categoryId == null -> existing
             existing.categoryId == null -> incoming
+            iMail && !eMail && (incoming.confidence >= threshold || existing.confidence < threshold) -> incoming
+            eMail && !iMail && (existing.confidence >= threshold || incoming.confidence < threshold) -> existing
             incoming.confidence > existing.confidence -> incoming
             else -> existing
         }
+    }
+
+    /**
+     * Combines two reports of one payment into a single record: the bank's amount, the most
+     * informative name (see [nameSourceRecord]), the e-mail's description, counterparty account
+     * and symbols, the earliest real timestamp, the category you chose (else the e-mail's),
+     * and the union of all evidence.
+     */
+    fun merge(existing: Transaction, incoming: Transaction): Transaction {
+        val amountSource = if (amountRank(incoming.source) > amountRank(existing.source)) incoming else existing
+        val nameSource = nameSourceRecord(existing, incoming)
+        val evidence = existing.evidence + incoming.evidence
+        val (timestamp, earliest) = mergedTime(existing, incoming)
+        val primary = if (existing.source == INFERRED && incoming.source != INFERRED) incoming.source else existing.source
+        val categorySource = categorySourceRecord(existing, incoming)
+        val other = if (categorySource === existing) incoming else existing
+        // The e-mail's structured details first, then whatever the other report had.
+        val details = if (EMAIL in incoming.evidence && EMAIL !in existing.evidence) listOf(incoming, existing) else listOf(existing, incoming)
         return existing.copy(
             timestampMillis = timestamp,
             amountMinor = amountSource.amountMinor,
             currency = amountSource.currency,
             amountCzkMinor = amountSource.amountCzkMinor,
-            merchant = merchantSource.merchant,
+            merchant = nameSource.merchant,
+            nameSource = nameSourceOf(nameSource),
             accountId = existing.accountId ?: incoming.accountId,
             categoryId = categorySource.categoryId,
             confidence = if (categorySource.categoryId == null) maxOf(existing.confidence, incoming.confidence) else categorySource.confidence,
+            categoryLocked = existing.categoryLocked || incoming.categoryLocked,
             source = primary,
             status = if (EMAIL in evidence || BANK_NOTIFICATION in evidence) TransactionStatus.SETTLED else existing.status,
             sourcePackage = existing.sourcePackage ?: incoming.sourcePackage,
             evidence = evidence,
-            note = listOf(existing.note, incoming.note).filter { it.isNotBlank() }.distinct().joinToString(" · ").take(200),
+            note = categorySource.note.ifBlank { other.note }.take(200),
             fingerprints = existing.fingerprints + incoming.fingerprints + listOfNotNull(existing.fingerprint, incoming.fingerprint),
             earliestMillis = earliest,
+            description = details.map { it.description }.firstOrNull { it.isNotBlank() }.orEmpty(),
+            counterpartyAccount = details.firstNotNullOfOrNull { it.counterpartyAccount },
+            symbols = details.map { it.symbols }.firstOrNull { it.isNotBlank() }.orEmpty(),
+            awaitingEmail = EMAIL !in evidence && (existing.awaitingEmail || incoming.awaitingEmail),
         )
     }
 

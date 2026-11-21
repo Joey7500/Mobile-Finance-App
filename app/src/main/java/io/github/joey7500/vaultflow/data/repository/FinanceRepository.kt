@@ -18,6 +18,7 @@ import io.github.joey7500.vaultflow.domain.classify.RuleLearning
 import io.github.joey7500.vaultflow.data.local.entity.ProcessedMessageEntity
 import io.github.joey7500.vaultflow.domain.ingest.BalanceObservation
 import io.github.joey7500.vaultflow.domain.ingest.Deduplicator
+import io.github.joey7500.vaultflow.domain.ingest.EmailFirst
 import io.github.joey7500.vaultflow.domain.ingest.DuplicateRepair
 import io.github.joey7500.vaultflow.domain.ingest.IncomingMessage
 import io.github.joey7500.vaultflow.domain.ingest.IngestContext
@@ -27,6 +28,7 @@ import io.github.joey7500.vaultflow.domain.model.Account
 import io.github.joey7500.vaultflow.domain.model.Category
 import io.github.joey7500.vaultflow.domain.model.ClassificationRule
 import io.github.joey7500.vaultflow.domain.model.DefaultCategories
+import io.github.joey7500.vaultflow.domain.model.EmailMode
 import io.github.joey7500.vaultflow.domain.model.FlowKind
 import io.github.joey7500.vaultflow.domain.model.ManualAsset
 import io.github.joey7500.vaultflow.domain.model.RuleMatch
@@ -183,7 +185,7 @@ class FinanceRepository(
      */
     suspend fun assignCategory(txId: Long, categoryId: Long, learn: Boolean): String? = db.withTransaction {
         val tx = db.transactions().get(txId) ?: return@withTransaction null
-        db.transactions().update(tx.copy(categoryId = categoryId, confidence = 1.0, note = "set by you"))
+        db.transactions().update(tx.copy(categoryId = categoryId, confidence = 1.0, note = "set by you", categoryLocked = true))
         val now = System.currentTimeMillis()
         val rules = db.rules().getAll().map { it.toDomain() }
         val rule = RuleLearning.onManualAssignment(rules, tx.merchant, categoryId, learn, now) ?: return@withTransaction null
@@ -193,8 +195,12 @@ class FinanceRepository(
         val matcher = Classifier(listOf(rule))
         val confidence = if (rule.origin == RuleOrigin.USER) 1.0 else RuleLearning.confidence(rule.hits)
         db.transactions().getSince(now - 120L * 24 * 3600 * 1000)
-            .filter { it.id != txId && (it.categoryId == null || it.confidence < Classifier.CONFIDENCE_THRESHOLD) && it.note != "set by you" }
-            .filter { matcher.classify(it.merchant, amountMinor = it.amountCzkMinor).categoryId == categoryId }
+            .filter { it.id != txId && (it.categoryId == null || it.confidence < Classifier.CONFIDENCE_THRESHOLD) && !it.categoryLocked && it.note != "set by you" }
+            .filter {
+                matcher.classify(
+                    it.merchant, amountMinor = it.amountCzkMinor, description = it.description, counterpartyAccount = it.counterpartyAccount,
+                ).categoryId == categoryId
+            }
             .forEach { db.transactions().update(it.copy(categoryId = categoryId, confidence = confidence, note = "your rule: \"${rule.pattern}\"")) }
         rule.pattern
     }
@@ -276,10 +282,12 @@ class FinanceRepository(
 
         val fx = settings.cachedFx() ?: runCatching { CnbClient.dailyRates() }.getOrNull()?.also { settings.saveFx(it, now) }
         val categoryIds = db.categories().getAll().filter { it.key != null }.associate { it.key!! to it.id }
+        val accounts = db.accounts().getAll().map { it.toDomain() }
         val ctx = IngestContext(
             defaultAccountId = sender.accountId,
             rules = db.rules().getAll().map { it.toDomain() },
-            accounts = db.accounts().getAll().map { it.toDomain() },
+            accounts = accounts,
+            emailModeByAccount = emailModes(accounts),
             categoryIdByKey = categoryIds,
             categoryKindById = db.categories().getAll().associate { it.id to it.toDomain().kind },
             // Covers late e-mails, replays and interbank transfer counterparts (up to a week).
@@ -314,6 +322,43 @@ class FinanceRepository(
         }
         db.captureLog().purgeBefore(now - CAPTURE_LOG_RETENTION_MS)
         true
+    }
+
+    /**
+     * "Bank e-mails are the main source" per account, AUTO resolved from the e-mail senders
+     * you mapped to it (csas.cz: all payments, other banks: transfers, none: off).
+     */
+    private suspend fun emailModes(accounts: List<Account>): Map<Long, EmailMode> {
+        val senders = db.senders().getAll()
+        return accounts.associate { acc ->
+            val domains = senders
+                .filter { it.enabled && it.accountId == acc.id && it.packageName.startsWith("mail:") }
+                .map { it.packageName.substringAfter('@').lowercase() }
+            acc.id to EmailFirst.resolve(acc.emailMode, domains)
+        }
+    }
+
+    /** How long a push waits for its bank e-mail (Settings → Gmail inbox). */
+    suspend fun emailWaitMs(): Long =
+        (settings.get(SettingsStore.EMAIL_WAIT_HOURS)?.toLongOrNull() ?: 3L) * EmailFirst.HOUR_MS
+
+    /**
+     * The wait is over (or the e-mail came): the push's name and category become final, the
+     * badge disappears and the payment can show up under Quick review. Returns how many ended.
+     */
+    suspend fun finalizeAwaitingEmail(now: Long = System.currentTimeMillis()): Int = ingestMutex.withLock {
+        val wait = emailWaitMs()
+        val done = db.transactions().getAwaitingEmail().map { it.toDomain() }.filter { EmailFirst.isExpired(it, now, wait) }
+        if (done.isNotEmpty()) {
+            db.withTransaction { done.forEach { db.transactions().update(it.copy(awaitingEmail = false).toEntity()) } }
+        }
+        done.size
+    }
+
+    /** Some push is still waiting for its bank e-mail: keep checking the inbox a little longer. */
+    suspend fun hasAwaitingEmail(now: Long = System.currentTimeMillis()): Boolean {
+        val wait = emailWaitMs()
+        return db.transactions().getAwaitingEmail().any { EmailFirst.isWaiting(it.toDomain(), now, wait) }
     }
 
     /**

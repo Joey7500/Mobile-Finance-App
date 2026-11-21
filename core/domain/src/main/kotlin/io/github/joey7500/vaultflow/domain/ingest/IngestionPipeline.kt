@@ -5,6 +5,7 @@ import io.github.joey7500.vaultflow.domain.fx.FxRates
 import io.github.joey7500.vaultflow.domain.model.Account
 import io.github.joey7500.vaultflow.domain.model.CategoryKeys
 import io.github.joey7500.vaultflow.domain.model.ClassificationRule
+import io.github.joey7500.vaultflow.domain.model.EmailMode
 import io.github.joey7500.vaultflow.domain.model.FlowKind
 import io.github.joey7500.vaultflow.domain.model.Transaction
 import io.github.joey7500.vaultflow.domain.model.TransactionSource
@@ -39,6 +40,8 @@ data class IngestContext(
     val zone: ZoneId = ZoneId.systemDefault(),
     /** Kind of each category id (lets the classifier spot a rule that contradicts the money direction). */
     val categoryKindById: Map<Long, FlowKind> = emptyMap(),
+    /** Resolved "bank e-mails are the main source" mode per account (see [EmailFirst]). */
+    val emailModeByAccount: Map<Long, EmailMode> = emptyMap(),
 )
 
 /** "The bank says account X held Y at time T." Used to check and re-anchor the balance. */
@@ -116,15 +119,27 @@ object IngestionPipeline {
         val counterparty = resolveCounterparty(bank, parsed.merchant, direction, sourceAccount, ctx)
         val transferId = ctx.categoryIdByKey[CategoryKeys.INTERNAL_TRANSFER]
 
+        // The e-mail names the payment from its structured fields: the card shop, the counterparty,
+        // else the payment message ("padel 3. 12." -> "Padel"). See EmailFirst.
+        val details = bank.details
+        val emailName = if (msg.channel == Channel.EMAIL) {
+            details.merchant ?: details.counterpartyName ?: details.message?.let(EmailFirst::nameFromMessage)
+        } else {
+            null
+        }
         val merchant = when {
             counterparty != null && direction == Direction.OUT && !bank.hasExplicitMerchant -> "Transfer to ${counterparty.name}"
             counterparty != null && direction == Direction.IN && !bank.hasExplicitMerchant -> "Transfer from ${counterparty.name}"
+            emailName != null -> emailName
             !bank.hasExplicitMerchant && msg.channel == Channel.EMAIL -> describeCounterpartyAccount(bank, direction) ?: parsed.merchant
             else -> parsed.merchant
         }
+        val description = details.message.orEmpty()
 
-        val classification = Classifier(ctx.rules, categoryKinds = ctx.categoryKindById)
-            .classify(merchant, listOfNotNull(msg.title, msg.text).joinToString(" "), parsed.amountMinor, sourceAccount?.type)
+        val classification = Classifier(ctx.rules, categoryKinds = ctx.categoryKindById).classify(
+            merchant, listOfNotNull(msg.title, msg.text).joinToString(" "), parsed.amountMinor, sourceAccount?.type,
+            description = description, counterpartyAccount = details.counterpartyAccount,
+        )
         // Confident results and suggestions both get their category; a suggestion keeps its low
         // confidence so it shows up under "Quick review" instead of silently counting as certain.
         val categoryId = when {
@@ -150,6 +165,10 @@ object IngestionPipeline {
             msg.channel == Channel.EMAIL -> msg.receivedAtMillis - EMAIL_DELAY_MS
             else -> msg.receivedAtMillis
         }
+        // A push for an account whose bank e-mails every such payment: provisional until the e-mail names it.
+        val cardPayment = bank.cardDigits.isNotEmpty() || parsed.isFromWallet || details.kind == BankMessageKind.CARD_PAYMENT
+        val awaitingEmail = msg.channel == Channel.NOTIFICATION &&
+            EmailFirst.expectsEmail(sourceAccount?.let { ctx.emailModeByAccount[it.id] }, cardPayment)
         val fingerprint = TextNormalizer.fingerprint(msg.sourceKey, msg.messageKey, msg.title.orEmpty(), msg.text.orEmpty())
         // Same notification id + same text, without the post time: recognises an app re-posting it.
         val contentKey = if (msg.channel == Channel.NOTIFICATION) {
@@ -191,6 +210,11 @@ object IngestionPipeline {
             fingerprint = fingerprint,
             fingerprints = setOfNotNull(fingerprint, contentKey),
             earliestMillis = if (dateOnly) dayStart else null,
+            description = description,
+            counterpartyAccount = details.counterpartyAccount,
+            symbols = details.symbols,
+            nameSource = source,
+            awaitingEmail = awaitingEmail,
         )
 
         val inserts = mutableListOf<Transaction>()
@@ -239,6 +263,8 @@ object IngestionPipeline {
                 sourcePackage = null,
                 fingerprint = counterpartFp,
                 earliestMillis = main.earliestMillis,
+                description = main.description,
+                nameSource = TransactionSource.INFERRED,
             )
             val others = ctx.recentTransactions.filter { it.id != main.id || main.id == 0L }
             val linked = others.firstOrNull { it.accountId == counterparty.id && it.knows(counterpartFp) }
@@ -401,7 +427,7 @@ object IngestionPipeline {
     }
 
     private fun isUserChoice(t: Transaction, transferId: Long) =
-        t.confidence >= 1.0 && t.categoryId != null && t.categoryId != transferId && t.note == "set by you"
+        t.categoryLocked || (t.confidence >= 1.0 && t.categoryId != null && t.categoryId != transferId && t.note == "set by you")
 
     private fun ownAccountFor(m: AccountMention, ctx: IngestContext): Account? =
         ctx.accounts.firstOrNull { a -> a.ownIdentifiers.any { BankMessageParser.sameAccount(m.number, it) } }

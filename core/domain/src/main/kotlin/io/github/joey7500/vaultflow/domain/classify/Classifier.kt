@@ -6,6 +6,7 @@ import io.github.joey7500.vaultflow.domain.model.ClassificationRule
 import io.github.joey7500.vaultflow.domain.model.FlowKind
 import io.github.joey7500.vaultflow.domain.model.RuleMatch
 import io.github.joey7500.vaultflow.domain.model.RuleOrigin
+import io.github.joey7500.vaultflow.domain.ingest.EmailFirst
 import io.github.joey7500.vaultflow.domain.text.TextNormalizer
 
 /** Which step of the classifier produced a result (shown as the reason, used in tests). */
@@ -72,9 +73,21 @@ class Classifier(
 
     /**
      * [amountMinor] >= 0 is money in. [accountType] is the account the payment
-     * was booked to, when known.
+     * was booked to, when known. [description] is the payment message from the bank
+     * e-mail ("padel 3. 12."), [counterpartyAccount] the other party's account.
+     *
+     * Order: your own accounts, your rules (name, then counterparty account, then message
+     * words), keywords in the payment message, learned rules (same order), the built-in
+     * dictionary on the name, then context.
      */
-    fun classify(merchant: String, rawText: String = "", amountMinor: Long = -1, accountType: AccountType? = null): Classification {
+    fun classify(
+        merchant: String,
+        rawText: String = "",
+        amountMinor: Long = -1,
+        accountType: AccountType? = null,
+        description: String = "",
+        counterpartyAccount: String? = null,
+    ): Classification {
         val compactText = (merchant + " " + rawText).uppercase().filter(Char::isLetterOrDigit)
         if (ownIds.any { compactText.contains(it) }) {
             return Classification(null, CategoryKeys.INTERNAL_TRANSFER, 1.0, "mentions one of your own accounts", ClassificationTier.OWN_ACCOUNT)
@@ -82,16 +95,21 @@ class Classifier(
         val incoming = amountMinor >= 0
         val key = TextNormalizer.merchantKey(merchant)
         val canon = MerchantNormalizer.canonical(merchant)
+        val account = counterpartyAccount?.let(::accountKey)
+        val message = TextNormalizer.merchantKey(EmailFirst.messageWords(description))
 
-        findRule(userRules, key, canon)?.let { r ->
+        findRule(userRules, key, canon, account, message)?.let { r ->
             return fromRule(r, 1.0, "your rule", ClassificationTier.USER_RULE, incoming)
         }
-        findRule(learnedRules, key, canon)?.let { r ->
+        CategoryDictionary.matchMessage(message)?.let { m ->
+            return Classification(null, m.entry.categoryKey, m.confidence, "payment message: ${m.entry.keyword}", ClassificationTier.DICTIONARY)
+        }
+        findRule(learnedRules, key, canon, account, message)?.let { r ->
             val label = if (RuleLearning.isTrusted(r)) "learned from you (${r.hits}×)" else "you filed it here once"
             return fromRule(r, RuleLearning.confidence(r.hits), label, ClassificationTier.LEARNED_RULE, incoming)
         }
 
-        val merchantTexts = listOf(canon, key).distinct()
+        val merchantTexts = listOfNotNull(canon, key, message.takeIf { it.length >= 3 }).distinct()
         val raw = TextNormalizer.merchantKey(rawText)
         return if (incoming) classifyIncoming(merchantTexts, raw, amountMinor) else classifyOutgoing(merchantTexts, raw, accountType)
     }
@@ -127,13 +145,33 @@ class Classifier(
         return Classification.UNKNOWN
     }
 
-    private fun findRule(rules: Pair<List<CompiledRule>, List<CompiledRule>>, key: String, canon: String): ClassificationRule? {
+    private fun findRule(
+        rules: Pair<List<CompiledRule>, List<CompiledRule>>,
+        key: String,
+        canon: String,
+        account: String? = null,
+        message: String = "",
+    ): ClassificationRule? {
         val (exact, contains) = rules
         exact.firstOrNull { it.rule.pattern == key || it.rule.pattern == canon || it.canonicalPattern == canon }?.let { return it.rule }
-        return contains.firstOrNull { c ->
+        contains.firstOrNull { c ->
             key.contains(c.rule.pattern) || canon.contains(c.rule.pattern) ||
                 (c.canonicalPattern.length >= 3 && canon.contains(c.canonicalPattern))
-        }?.rule
+        }?.let { return it.rule }
+        // A rule on a counterparty ACCOUNT ("Payment from 1234567/9999", e.g. a friend's rent share)
+        // still applies once the e-mail names that payment by its message or the person.
+        if (account != null) {
+            (exact + contains).firstOrNull { ACCOUNT.matches(it.rule.pattern) && accountKey(it.rule.pattern) == account }?.let { return it.rule }
+        }
+        // Words of the payment message ("padel" in "padel 3. 12."), as whole words.
+        if (message.isNotBlank()) {
+            (exact + contains).firstOrNull { c ->
+                val p = c.canonicalPattern
+                p.length >= 4 && !ACCOUNT.containsMatchIn(p) &&
+                    Regex("(?<![A-Z0-9])" + Regex.escape(p) + "(?![A-Z0-9])").containsMatchIn(message)
+            }?.let { return it.rule }
+        }
+        return null
     }
 
     private fun fromRule(r: ClassificationRule, confidence: Double, label: String, tier: ClassificationTier, incoming: Boolean): Classification {
@@ -177,6 +215,13 @@ class Classifier(
             if (ACCOUNT.containsMatchIn(pattern)) pattern else MerchantNormalizer.canonical(pattern)
 
         private val ACCOUNT = Regex("""(?:\d{1,6}-)?\d{4,10}/\d{4}""")
+
+        /** "19-0001234567/9999" and "1234567/9999" are one account: main number without zeros + bank code. */
+        fun accountKey(account: String): String {
+            val main = account.substringBefore('/').substringAfter('-').filter(Char::isDigit).trimStart('0')
+            val bank = account.substringAfter('/', "").filter(Char::isDigit)
+            return if (bank.isEmpty()) main else "$main/$bank"
+        }
         private val GENERIC_WORDS = setOf(
             "PAYMENT", "FROM", "TO", "TRANSFER", "PLATBA", "PRICHOZI", "ODCHOZI", "PREVOD", "NA", "Z", "UCET", "UCTU",
             "KARTOU", "CARD", "PAID", "INCOME", "EXPENSE",

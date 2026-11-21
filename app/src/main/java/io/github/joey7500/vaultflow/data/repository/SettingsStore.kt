@@ -64,5 +64,7 @@ class SettingsStore(private val dao: SettingDao) {
         const val OVERSPEND_RED_THRESHOLD_MINOR = "overspend_red_threshold_minor"
         const val DUPLICATE_REPAIR_V2_DONE = "duplicate_repair_v2"
         const val DUPLICATES_DISMISSED = "duplicates_dismissed"
+        const val EMAIL_WAIT_HOURS = "email_wait_hours"
+        const val EMAIL_REENRICH_DONE = "email_reenrich_v1"
     }
 }

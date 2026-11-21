@@ -12,6 +12,7 @@ import io.github.joey7500.vaultflow.data.repository.SettingsStore
 import io.github.joey7500.vaultflow.di.AppContainer
 import io.github.joey7500.vaultflow.domain.model.Account
 import io.github.joey7500.vaultflow.domain.model.AccountType
+import io.github.joey7500.vaultflow.domain.model.EmailMode
 import io.github.joey7500.vaultflow.domain.model.Category
 import io.github.joey7500.vaultflow.domain.model.ClassificationRule
 import io.github.joey7500.vaultflow.domain.model.FlowKind
@@ -107,6 +108,17 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
 
+    /** How long a notification waits for its bank e-mail (hours). */
+    val emailWaitHours: StateFlow<Int> = c.settings.all
+        .map { s -> s[SettingsStore.EMAIL_WAIT_HOURS]?.toIntOrNull() ?: 3 }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 3)
+
+    fun setEmailWait(hours: Int) = viewModelScope.launch {
+        c.settings.put(SettingsStore.EMAIL_WAIT_HOURS, hours.toString())
+        c.finance.finalizeAwaitingEmail()
+        say("Notifications wait up to $hours h for their bank e-mail")
+    }
+
     fun saveGmail(context: android.content.Context, address: String, appPassword: String) {
         c.vault.put(SecretVault.GMAIL_ADDRESS, address.trim().lowercase())
         if (appPassword.isNotBlank()) c.vault.put(SecretVault.GMAIL_APP_PASSWORD, appPassword.replace(" ", ""))
@@ -151,7 +163,10 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         say("Reserve floor updated")
     }
 
-    fun saveAccount(existing: Account?, name: String, type: AccountType, balanceMinor: Long, liquid: Boolean, ownIds: String, cardIds: String, aliases: String, overdraftMinor: Long) =
+    fun saveAccount(
+        existing: Account?, name: String, type: AccountType, balanceMinor: Long, liquid: Boolean, ownIds: String,
+        cardIds: String, aliases: String, overdraftMinor: Long, emailMode: EmailMode,
+    ) =
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             val prev = existing?.let { e -> c.finance.accountEntities().firstOrNull { it.id == e.id } }
@@ -172,6 +187,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
                     lastCheckDiffMinor = prev?.lastCheckDiffMinor,
                     lastReportedMinor = prev?.lastReportedMinor,
                     sortOrder = prev?.sortOrder ?: state.value.accounts.size,
+                    emailMode = emailMode.name,
                 ),
             )
             say("Account saved")

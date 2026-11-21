@@ -105,7 +105,7 @@ object CategoryDictionary {
         whole(TRAVELLING, Strength.BRAND, "LIME", "TIER"),
         keywords(TRAVELLING, "PARKOVANI", "PARKING", "DALNICNI", "CERPACI STANICE", "TAXI", "AUTOMYCKA", "JIZDENK"),
 
-        // Fun & hobbies.
+        // Fun & sport.
         brands(
             FUN, "DECATHLON", "SPORTISIMO", "STEAM", "PLAYSTATION", "NINTENDO", "XBOX", "CINEMA CITY", "CINESTAR",
             "ALZA", "DATART", "CZC", "GOOUT", "TICKETPORTAL", "TICKETMASTER", "TICKETSTREAM", "MULTISPORT",
@@ -146,6 +146,39 @@ object CategoryDictionary {
         listOf("DAREK", "DAR", "GIFT", "NAROZENIN").map { Entry(it, GIFTS, Strength.KEYWORD, Direction.IN) },
         listOf("VANOCE", "SVATB").map { Entry(it, GIFTS, Strength.WEAK, Direction.IN) },
     ).flatten()
+
+    /**
+     * Words people write in a payment message ("padel 3. 12.", "nájem listopad", "obědy").
+     * The payer's own words say what a payment was for, in either direction (money back from a
+     * friend for padel lowers Fun & sport), so they count strongly. Prefixes cover Czech endings.
+     */
+    private val MESSAGE: List<Entry> = listOf(
+        keywords(
+            FUN, "PADEL", "TENIS", "TENNIS", "SQUASH", "BADMINTON", "FOTBAL", "FLORBAL", "HOKEJ", "VOLEJBAL", "BASKET",
+            "LEZENI", "LEZECK", "BOULDER", "BAZEN", "PLAVANI", "SAUNA", "POSILOVN", "FITKO", "FITNESS", "TRENINK",
+            "TURNAJ", "LYZE", "LYZOV", "SKIPAS", "BOWLING", "GOLF", "JOGA", "YOGA", "SPINNING", "SPORT", "KINO",
+            "DIVADL", "KONCERT", "VSTUPENK", "FESTIVAL",
+        ),
+        keywords(RENT, "NAJEM", "NAJMU", "NAJEMNE", "PODNAJEM", "HYPOTEK"),
+        keywords(
+            EATING_OUT, "OBED", "VECER", "SNIDAN", "SVACIN", "PIZZ", "KAFE", "KAVU", "KAVA", "PIVO", "PIVA", "BURGER",
+            "SUSHI", "RESTAURAC", "HOSPOD", "BAGET",
+        ),
+        keywords(GROCERIES, "NAKUP", "POTRAVIN"),
+        keywords(TRAVELLING, "BENZIN", "NAFTA", "PALIVO", "JIZDENK", "JIZDNE", "VLAK", "TAXI", "PARKOVANI", "DALNICNI", "SPOLUJIZD"),
+        keywords(HOLIDAY, "DOVOLEN", "UBYTOVANI", "CHATA", "CHALUP", "LETENK", "HOTEL", "APARTM"),
+        keywords(SUBSCRIPTIONS, "PREDPLATN"),
+    ).flatten().sortedByDescending { it.keyword.length }
+
+    /** Confidence of a keyword found in the payer's own payment message. */
+    const val MESSAGE_CONFIDENCE = 0.9
+
+    /** A keyword in the payment message ([messageKey]: normalised, without dates and numbers). */
+    fun matchMessage(messageKey: String): Match? {
+        if (messageKey.isBlank()) return null
+        val e = MESSAGE.firstOrNull { it.regex.containsMatchIn(messageKey) } ?: return null
+        return Match(e, MESSAGE_CONFIDENCE, "payment message")
+    }
 
     /** Words that make an incoming payment a refund of an earlier purchase. */
     private val REFUND = listOf("VRACENI", "VRACENA", "VRACENO", "VRATKA", "REFUND", "DOBROPIS", "STORNO", "REKLAMACE", "RETURN", "CHARGEBACK")
@@ -189,5 +222,5 @@ object CategoryDictionary {
     }
 
     /** All entries, for tests and the "how it decides" help. */
-    val entries: List<Entry> get() = OUT + IN
+    val entries: List<Entry> get() = OUT + IN + MESSAGE
 }

@@ -91,6 +91,21 @@ data class Transaction(
      * The record then happened somewhere in [earliestMillis, timestampMillis]. Null = exact time.
      */
     val earliestMillis: Long? = null,
+    /** The payer's own words from the bank e-mail ("padel 3. 12."): what the payment was for. */
+    val description: String = "",
+    /** The other party's account as the bank wrote it ("7654321/9998"). Stored only in the encrypted DB. */
+    val counterpartyAccount: String? = null,
+    /** Variable / constant / specific symbol, e.g. "VS 1126". */
+    val symbols: String = "",
+    /** Which report the [merchant] name came from (null: older record, derived from [evidence]). */
+    val nameSource: TransactionSource? = null,
+    /** You picked the category yourself: no later report or rule may change it. */
+    val categoryLocked: Boolean = false,
+    /**
+     * Booked from a push for an account whose bank e-mails are the main source: the name and
+     * category are provisional until the e-mail arrives (or the wait times out).
+     */
+    val awaitingEmail: Boolean = false,
 ) {
     /** This record already contains the message with fingerprint [fp]. */
     fun knows(fp: String?): Boolean = fp != null && (fp == fingerprint || fp in fingerprints)
@@ -130,7 +145,27 @@ data class Account(
     /** When the bank last reported this account's balance, and how far the app was off. */
     val lastCheckAtMillis: Long? = null,
     val lastCheckDiffMinor: Long? = null,
+    /** Whether this account's bank e-mails are the main source of names and categories. */
+    val emailMode: EmailMode = EmailMode.AUTO,
 )
+
+/**
+ * "Bank e-mails are the main source" for an account. A push is booked at once either way;
+ * with e-mails as the main source it is marked "awaiting e-mail" until the e-mail names it.
+ */
+enum class EmailMode {
+    /** Decided from the bank whose e-mails are mapped to the account (ČS: all, KB: transfers, none: off). */
+    AUTO,
+
+    /** Every payment is also e-mailed (Česká spořitelna). */
+    ALL,
+
+    /** Transfers are e-mailed, card payments are not (Komerční banka). */
+    TRANSFERS,
+
+    /** No e-mails (Revolut). */
+    OFF,
+}
 
 /** A user-maintained asset with a manually entered value (building savings, cash at home, ...). */
 data class ManualAsset(

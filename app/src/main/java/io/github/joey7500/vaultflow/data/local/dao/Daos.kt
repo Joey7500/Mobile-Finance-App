@@ -75,6 +75,10 @@ interface TransactionDao {
     @Query("UPDATE transactions SET categoryId = NULL WHERE categoryId = :categoryId")
     suspend fun clearCategory(categoryId: Long)
 
+    /** Records booked from a push whose bank e-mail is still expected. */
+    @Query("SELECT * FROM transactions WHERE awaitingEmail = 1")
+    suspend fun getAwaitingEmail(): List<TransactionEntity>
+
     /** Sum of transactions booked after each account's anchor date. */
     @Query(
         """

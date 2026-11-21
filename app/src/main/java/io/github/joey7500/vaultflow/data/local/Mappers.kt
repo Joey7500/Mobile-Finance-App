@@ -8,6 +8,7 @@ import io.github.joey7500.vaultflow.data.local.entity.TransactionEntity
 import io.github.joey7500.vaultflow.domain.model.Account
 import io.github.joey7500.vaultflow.domain.model.AccountType
 import io.github.joey7500.vaultflow.domain.model.Category
+import io.github.joey7500.vaultflow.domain.model.EmailMode
 import io.github.joey7500.vaultflow.domain.model.ClassificationRule
 import io.github.joey7500.vaultflow.domain.model.FlowKind
 import io.github.joey7500.vaultflow.domain.model.ManualAsset
@@ -35,6 +36,12 @@ fun TransactionEntity.toDomain() = Transaction(
         .toSet().ifEmpty { setOf(enumOr(source, TransactionSource.MANUAL)) },
     fingerprints = (fingerprints.split(' ').filter { it.isNotBlank() } + listOfNotNull(fingerprint)).toSet(),
     earliestMillis = earliestMillis,
+    description = description,
+    counterpartyAccount = counterpartyAccount,
+    symbols = symbols,
+    nameSource = nameSource?.let { runCatching { enumValueOf<TransactionSource>(it) }.getOrNull() },
+    categoryLocked = categoryLocked,
+    awaitingEmail = awaitingEmail,
 )
 
 fun Transaction.toEntity() = TransactionEntity(
@@ -45,6 +52,12 @@ fun Transaction.toEntity() = TransactionEntity(
     evidence = evidence.joinToString(",") { it.name },
     fingerprints = (fingerprints + listOfNotNull(fingerprint)).sorted().joinToString(" "),
     earliestMillis = earliestMillis,
+    description = description,
+    counterpartyAccount = counterpartyAccount,
+    symbols = symbols,
+    nameSource = nameSource?.name,
+    categoryLocked = categoryLocked,
+    awaitingEmail = awaitingEmail,
 )
 
 fun AccountEntity.toDomain() = Account(
@@ -56,6 +69,7 @@ fun AccountEntity.toDomain() = Account(
     overdraftMinor = overdraftMinor,
     lastCheckAtMillis = lastCheckAtMillis,
     lastCheckDiffMinor = lastCheckDiffMinor,
+    emailMode = enumOr(emailMode, EmailMode.AUTO),
 )
 
 fun RuleEntity.toDomain() = ClassificationRule(

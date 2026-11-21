@@ -46,9 +46,9 @@ class MoneyNotificationListener : NotificationListenerService() {
                 val handled = container.finance.ingestMessage(
                     IncomingMessage(Channel.NOTIFICATION, sbn.packageName, key, postedAt, title, text),
                 )
-                // The bank e-mail follows ~6 min later: check the inbox soon to confirm it.
+                // The bank e-mail follows ~6 min later: check the inbox at +7 / +15 / +30 min.
                 if (handled) {
-                    EmailSyncWorker.scheduleSoon(applicationContext)
+                    EmailSyncWorker.scheduleFollowUps(applicationContext)
                     SafeToSpendWidget.refresh(applicationContext)
                 }
             }

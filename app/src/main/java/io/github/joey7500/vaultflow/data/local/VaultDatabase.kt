@@ -42,7 +42,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         SettingEntity::class,
         ProcessedMessageEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class VaultDatabase : RoomDatabase() {
@@ -104,6 +104,26 @@ abstract class VaultDatabase : RoomDatabase() {
         }
 
         /**
+         * v5 -> v6: e-mail first. Transactions keep the e-mail's payment message, counterparty
+         * account and symbols, where their name came from, whether you picked the category, and
+         * whether the bank e-mail is still expected. Accounts get "bank e-mails are the main source".
+         * The default "Fun & hobbies" category becomes "Fun & sport" (unless you renamed it).
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN counterpartyAccount TEXT")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN symbols TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN nameSource TEXT")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN categoryLocked INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN awaitingEmail INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE transactions SET categoryLocked = 1 WHERE categoryId IS NOT NULL AND note LIKE 'set by you%'")
+                db.execSQL("ALTER TABLE accounts ADD COLUMN emailMode TEXT NOT NULL DEFAULT 'AUTO'")
+                db.execSQL("UPDATE categories SET name = 'Fun & sport' WHERE `key` = 'fun' AND name = 'Fun & hobbies'")
+            }
+        }
+
+        /**
          * The real vault: SQLCipher (AES-256) encrypted, keyed by a passphrase
          * wrapped in the hardware Keystore.
          *
@@ -116,7 +136,7 @@ abstract class VaultDatabase : RoomDatabase() {
             val factory = SupportOpenHelperFactory(DatabaseKeyManager(context).passphrase())
             return Room.databaseBuilder(context.applicationContext, VaultDatabase::class.java, DB_NAME)
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
         }
 

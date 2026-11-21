@@ -49,6 +49,22 @@ data class TransactionEntity(
     val fingerprints: String = "",
     /** Earliest possible time when only the date is known (date-only bank e-mail), else null (DB v5). */
     val earliestMillis: Long? = null,
+    /** Payment message from the bank e-mail ("padel 3. 12.") (DB v6). */
+    @ColumnInfo(defaultValue = "''")
+    val description: String = "",
+    /** The other party's account as the bank wrote it (DB v6). */
+    val counterpartyAccount: String? = null,
+    /** "VS 1126 · KS 308" (DB v6). */
+    @ColumnInfo(defaultValue = "''")
+    val symbols: String = "",
+    /** TransactionSource the name came from; null for older records (DB v6). */
+    val nameSource: String? = null,
+    /** You picked the category yourself (DB v6; older "set by you" notes migrated). */
+    @ColumnInfo(defaultValue = "0")
+    val categoryLocked: Boolean = false,
+    /** Booked from a push, its bank e-mail is still expected (DB v6). */
+    @ColumnInfo(defaultValue = "0")
+    val awaitingEmail: Boolean = false,
 )
 
 @Serializable
@@ -76,6 +92,9 @@ data class AccountEntity(
     val lastCheckAtMillis: Long? = null,
     val lastCheckDiffMinor: Long? = null,
     val lastReportedMinor: Long? = null,
+    /** EmailMode: are this account's bank e-mails the main source of names (DB v6). */
+    @ColumnInfo(defaultValue = "'AUTO'")
+    val emailMode: String = "AUTO",
 )
 
 @Serializable

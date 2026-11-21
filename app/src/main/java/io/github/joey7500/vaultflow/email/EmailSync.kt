@@ -64,6 +64,7 @@ class EmailSync(
             if (handled) processed++
         }
         finance.purgeProcessed()
+        finance.finalizeAwaitingEmail()
         settings.putLong(SettingsStore.EMAIL_LAST_SYNC_AT, now)
         settings.put(SettingsStore.EMAIL_LAST_RESULT, "OK · ${mails.size} e-mails checked · $processed processed")
         EmailSyncResult(mails.size, processed, null)
