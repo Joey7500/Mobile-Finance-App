@@ -508,7 +508,7 @@ private fun AccountDialog(
                 OutlinedTextField(
                     cards, { cards = it },
                     label = { Text("Last 4 digits of cards on this account") },
-                    supportingText = { Text("One per line, e.g. 3953. A card payment notification mentioning them is booked to this account.") },
+                    supportingText = { Text("One per line, e.g. 1111. A card payment notification mentioning them is booked to this account.") },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(

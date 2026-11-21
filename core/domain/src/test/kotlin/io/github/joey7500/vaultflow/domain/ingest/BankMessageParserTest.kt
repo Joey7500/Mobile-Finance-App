@@ -33,7 +33,7 @@ class BankMessageParserTest {
         assertEquals(listOf("1111"), BankMessageParser.cardDigits("platbu kartou 1111 ve výši"))
         assertEquals(listOf("2222"), BankMessageParser.cardDigits("72,90 CZK paid by card 2222."))
         assertEquals(listOf("3333"), BankMessageParser.cardDigits("180,00 Kč · Visa ••3333"))
-        assertTrue(BankMessageParser.cardDigits("ref 139530 paid").isEmpty())
+        assertTrue(BankMessageParser.cardDigits("ref 128460 paid").isEmpty())
     }
 
     @Test fun `exact time and date-only`() {

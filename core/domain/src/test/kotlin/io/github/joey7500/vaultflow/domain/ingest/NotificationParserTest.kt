@@ -69,10 +69,10 @@ class NotificationParserTest {
     }
 
     @Test fun `george card payment - merchant comes from the title`() {
-        val p = NotificationParser.parse("cz.csas.georgego", "\uD83D\uDCB3 VUT PRODEJNA 1", "72,90 CZK paid by card 3953.")!!
+        val p = NotificationParser.parse("cz.csas.georgego", "\uD83D\uDCB3 SKOLNI BUFET 1", "72,90 CZK paid by card 1111.")!!
         assertEquals(-7_290L, p.amountMinor)
         assertEquals("CZK", p.currency)
-        assertEquals("VUT PRODEJNA 1", p.merchant)
+        assertEquals("SKOLNI BUFET 1", p.merchant)
     }
 
     @Test fun `generic title falls back to body text`() {
