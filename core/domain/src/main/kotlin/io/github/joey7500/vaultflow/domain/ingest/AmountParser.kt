@@ -34,6 +34,8 @@ object AmountParser {
 
     private val BALANCE_WORDS = listOf(
         "zustatek", "disponibilni", "k dispozici", "balance", "available", "limit",
+        // ČS daily balance: "dostupný zůstatek na Vašem účtu … k 21.11.2026 00:59 je včetně kontokorentu 18 204,50 Kč."
+        "je vcetne kontokorent",
     )
 
     fun findAll(text: String): List<FoundAmount> {

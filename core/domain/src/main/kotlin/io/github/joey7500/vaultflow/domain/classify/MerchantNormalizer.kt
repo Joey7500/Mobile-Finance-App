@@ -91,6 +91,17 @@ object MerchantNormalizer {
         return s.ifBlank { key.replace(NOT_WORD, " ").trim().ifBlank { key } }
     }
 
+    /** "DECATHLON OLOMOUC" -> "Olomouc", "ALBERT 0123 BRNO CZ" -> "Brno"; null when no known city ends the name. */
+    fun trailingCity(raw: String): String? {
+        var s = TextNormalizer.merchantKey(raw).replace(NOT_WORD, " ").trim()
+        s = s.split(' ').filter { it.isNotBlank() && !isNumberNoise(it) }.joinToString(" ")
+        for (country in COUNTRIES.sortedByDescending { it.length }) {
+            if (s.endsWith(" $country")) s = s.removeSuffix(" $country").trim()
+        }
+        val city = CITIES.sortedByDescending { it.length }.firstOrNull { s.endsWith(" $it") } ?: return null
+        return city.lowercase().split(' ').joinToString(" ") { w -> w.replaceFirstChar(Char::uppercase) }
+    }
+
     private fun isNumberNoise(token: String): Boolean =
         token.all(Char::isDigit) || token.count(Char::isDigit) >= 3
 }

@@ -154,18 +154,8 @@ object NotificationParser {
 
     private val GREETING = Regex("""(?i)dobr[ýy]\s+den[^\n,]*,?|hello[^\n,]*,?|hi [^\n,]*,""")
 
-    private val GENERIC_TITLE_WORDS = setOf(
-        "platba", "kartou", "karta", "karty", "odchozi", "prichozi", "transakce", "prevod", "uhrada",
-        "payment", "card", "transaction", "incoming", "outgoing", "transfer", "received", "sent",
-        "vraceni", "refund", "vyber", "bankomat", "atm", "nova", "new", "z", "na", "uctu", "ucet", "account",
-        "uctem", "platby", "prevodem", "informace", "oznameni", "notifikace", "pohyb", "pohyby", "zustatek",
-    )
-
-    /** "Platba kartou", "Příchozí platba", "Card payment" carry no merchant. */
-    private fun isGenericTitle(title: String): Boolean {
-        val words = TextNormalizer.lowerAscii(title).split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
-        return words.isEmpty() || words.all { it in GENERIC_TITLE_WORDS || it.all(Char::isDigit) }
-    }
+    /** "Platba kartou", "Příchozí platba", "Odešla platba", "Card payment" carry no merchant. */
+    private fun isGenericTitle(title: String): Boolean = GenericNames.isGeneric(title)
 
     private fun stripAmounts(s: String): String {
         var out = s
@@ -177,6 +167,6 @@ object NotificationParser {
 
     private fun clean(s: String): String =
         s.replace(Regex("[\\s\\u00A0\\u202F]+"), " ").trim()
-            .replace(Regex("^[^\\p{L}\\p{N}]+"), "") // leading emoji / symbols ("💳 VUT PRODEJNA 1")
+            .replace(Regex("^[^\\p{L}\\p{N}]+"), "") // leading emoji / symbols ("💳 SKOLNI BUFET 1")
             .trim().trim('.', ',', ':', ';', '-', '–').trim().take(60)
 }

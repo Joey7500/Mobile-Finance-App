@@ -49,6 +49,8 @@ data class BankMessage(
     val hasExplicitMerchant: Boolean,
     /** "k dispozici / disponibilní / available": the figure may include an overdraft. */
     val availableMayIncludeOverdraft: Boolean = false,
+    /** Kind, shop, counterparty, payment message and symbols (richest in bank e-mails). */
+    val details: PaymentDetails = PaymentDetails(),
 ) {
     /** Your own money on the account: available minus overdraft. */
     val ownFundsMinor: Long? get() = availableMinor?.let { it - (overdraftMinor ?: 0L) }
@@ -95,7 +97,12 @@ object BankMessageParser {
         ) != null
 
         val amounts = AmountParser.findAll(full)
-        val overdraft = amounts.firstOrNull { precededBy(full, it.range.first, listOf("kontokorent", "overdraft", "povolen")) }
+        // "(včetně kontokorentu 1 000 Kč)" states the overdraft; "… je včetně kontokorentu 18 204 Kč"
+        // (ČS daily balance) states the available funds INCLUDING the overdraft.
+        val overdraft = amounts.firstOrNull {
+            precededBy(full, it.range.first, listOf("kontokorent", "overdraft", "povolen")) &&
+                !precededBy(full, it.range.first, listOf("je vcetne kontokorent"))
+        }
         val available = (
             if (NotificationParser.isBalanceOnly(normalized)) {
                 amounts.firstOrNull { it != overdraft }
@@ -119,7 +126,9 @@ object BankMessageParser {
             eventTimeMillis = eventTime,
             eventDate = eventDate,
             hasExplicitMerchant = explicitMerchant,
-            availableMayIncludeOverdraft = listOf("k dispozici", "disponibil", "available").any { normalized.contains(it) },
+            availableMayIncludeOverdraft = listOf("k dispozici", "disponibil", "available", "dostupn", "vcetne kontokorent")
+                .any { normalized.contains(it) },
+            details = PaymentDetailsParser.parse(t, body, accounts, tx?.amountMinor, available != null),
         )
     }
 
