@@ -21,6 +21,43 @@ Bank e-mail    ─┘        (sources: Wallet · App · E-mail ✓)
   it. It shows **✓ matches** or **⚠ off by X** (a missed payment) under the
   account, then corrects the balance.
 
+## E-mail first (1.3.0): the e-mail names the payment
+
+A push notification is booked **at once**: balance, budget, safe-to-spend and the widget react
+immediately. For an account whose bank e-mails are the main source, the payment shows
+**⏳ e-mail** and stays out of Quick review until its e-mail arrives. The e-mail then enriches
+the same record (never a second one):
+
+| From the e-mail | Example (fake) |
+|---|---|
+| Name: card shop, else the counterparty, else the payment message without dates | "Odešla platba" -> "Padel" |
+| Description: the payment message ("Zpráva pro příjemce") | "padel 3. 12." |
+| Counterparty account, symbols | "5550001/9997", "VS 1126" |
+| Category, re-run on name + message + counterparty account | padel -> Fun & sport, nájem -> Rent |
+
+- Generic bank titles ("Odešla platba", "Příchozí platba", "Platba kartou") never stay as a name
+  when the e-mail has something better. A Google Wallet brand still wins over the e-mail's
+  terminal descriptor of the **same** shop ("Very Goodies" vs "NYX*VeryGoodiesas").
+- A category you picked yourself never changes. A confident guess is never downgraded to a
+  weaker one.
+- No e-mail within **3 h** (Settings → Gmail inbox: 1 / 3 / 6 / 12 h): the push's name and
+  category stay, the badge disappears.
+- The inbox is checked 7 min after a payment, and at 15 and 30 min only while something waits.
+
+**Per account** (Settings → Accounts → edit): *Bank e-mails are the main source*:
+
+| Setting | Meaning |
+|---|---|
+| Auto (default) | All payments for an account with a Česká spořitelna (csas.cz) e-mail sender, transfers for other banks that e-mail, off without e-mails |
+| All payments | Every payment is e-mailed (Česká spořitelna) |
+| Transfers only | Transfers are e-mailed, card payments are not (Komerční banka) |
+| Off | No e-mails (Revolut) |
+
+**Older payments:** Settings → Gmail inbox → **Re-check names from e-mails** re-reads the bank
+e-mails of the last 60 days (read-only) and gives the payments they already belong to the
+e-mail's name, message and category. It never adds payments and never changes amounts. It runs
+once by itself after the update to 1.3.0.
+
 ## 1. Create a dedicated Gmail (recommended)
 
 An App Password can read the whole mailbox. Use a separate Gmail that only
@@ -95,6 +132,9 @@ balance, set *Top-up names* to `REVOLUT`, and map the Revolut app to it under
 | ČS card payment "u Revolut**…", Revolut "Money added" | −X on ČS, +X on Revolut, both internal transfer |
 | Daily balance e-mail | balance check + correction, no transaction |
 | E-mail arrives but the notification never did | the e-mail creates the transaction |
+| George push "Odešla platba", then the transfer e-mail | 1 transaction named from the payment message, with its category |
+| A 400 Kč card e-mail (date only) and a different 400 Kč transfer push the same day | 2 transactions: a date-only e-mail never takes a push of another payment by amount alone |
+| Push delivered hours late (phone off) after its transfer e-mail | still 1 transaction: a generic push title cannot contradict the e-mail's name |
 
 ## Privacy
 

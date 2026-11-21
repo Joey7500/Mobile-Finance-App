@@ -6,8 +6,10 @@
 VaultFlow/
 ├── core/domain/      Pure Kotlin. All business rules + unit tests. No Android.
 │   ├── budget/       BudgetEngine (budget vs actual), Reserve (balance-based floor)
-│   ├── ingest/       AmountParser, NotificationParser, Deduplicator, IngestionPipeline
-│   ├── classify/     Classifier (own accounts → your rules → learned rules → dictionary → context),
+│   ├── ingest/       AmountParser, NotificationParser, BankMessageParser + PaymentDetails,
+│   │                 Deduplicator, IngestionPipeline, EmailFirst, Reenricher, DuplicateRepair
+│   ├── classify/     Classifier (own accounts → your rules → payment-message keywords → learned rules
+│   │                 → dictionary → context),
 │   │                 MerchantNormalizer, CategoryDictionary, RuleLearning
 │   ├── wealth/       NetWorth pillars, GoldMath
 │   ├── fx/           ČNB daily-rate parser
@@ -57,7 +59,11 @@ flowchart LR
 | Every fused message is remembered | A record keeps the fingerprints of ALL messages fused into it, so a replay (re-delivered notification, e-mail fetched again after a restore) is recognised, not only a replay of the first report. |
 | Time as a range | A date-only bank e-mail ("ze dne 10. 11.") is matched to its stated day up to its arrival, so an e-mail hours late still confirms its payment, and never a payment from another day. |
 | Transfers linked by fingerprint | The counterpart of message X carries `X:mirror`; a record that started as a counterpart links back to X, so later reports never create a second counterpart. A card payment at a shop or a stranger's payment never confirms an expected transfer. |
-| On-device classifier, no LLM | Transactions never leave the phone; $0 running cost. Learned rules cover the long tail. |
+| On-device classifier, no LLM | Transactions never leave the phone; $0 running cost. Learned rules cover the long tail. See `LLM_CLASSIFIER_ANALYSIS.md`. |
+| E-mail first | A push books the money at once; for accounts whose bank e-mails every payment it is provisional ("awaiting e-mail") until the e-mail names it (shop, counterparty or payment message), adds the description, counterparty account and symbols, and re-classifies. The wait times out (default 3 h). |
+| Name by information, not by source | Generic bank titles rank 0; e-mail > Wallet > push; a Wallet brand beats the e-mail descriptor of the same shop. Each record stores where its name came from (`nameSource`). |
+| Your category is a lock | `categoryLocked` (DB v6) instead of the note text: no report, rule or re-check changes it. |
+| Payment message classifies | "padel", "nájem", "obědy" in the message decide the category (0.9); rules also match the counterparty account, so a rule on a friend's account keeps working when the e-mail names the payment differently. |
 | Guesses are applied but flagged | A result below 0.8 confidence keeps its category with low confidence and appears under *Quick review*; nothing matched = Uncertain. Two consistent corrections of a merchant make a trusted learned rule; "always" makes one immediately. |
 | Keystore AES-GCM instead of `security-crypto` | The Jetpack library is deprecated; the platform API is stable. |
 | DB key not biometric-bound | The listener has to write while the UI is locked. |
@@ -77,6 +83,9 @@ flowchart LR
 | Wallet re-posts (up to 90 min, other spelling) | Fold by name; never move a record's bank time |
 | Two identical payments, each reported by the bank | Two records |
 | Own transfer: interbank / card top-up | Counterpart within 7 days / within 3 h (on the e-mail's day) |
+| Same amount, same account, within 3 min, names differ | One payment only when both times are exact (or a Wallet card report is involved): a date-only e-mail's time is its arrival, not the payment |
+| A generic push title ("Odešla platba") and an exact-time e-mail, same account and amount | One payment within the e-mail window (a late push) |
+| A push after a date-only e-mail that Wallet already joined | Still the late push of that payment |
 
 Known limits (no matcher can know): two identical payments (same shop, amount, account) within
 90 min that only Google Wallet reports become one; and when the same shop charges the same

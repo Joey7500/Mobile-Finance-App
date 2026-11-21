@@ -23,7 +23,7 @@ Czech (keep quoted Czech notification/e-mail text as it is).
 - Before pushing, run `gitleaks git --redact -v` (full history) and make sure it
   reports no leaks.
 
-## Current state (v1.1.0, versionCode 2)
+## Current state (v1.3.0, versionCode 4, DB v6)
 
 - The **signed release build** (`io.github.joey7500.vaultflow`) is installed on
   the owner's phone (Xiaomi 14T, HyperOS) with real data. The debug app was
@@ -41,7 +41,10 @@ Czech (keep quoted Czech notification/e-mail text as it is).
   transfers (debit one account, credit the other), balance reconciliation,
   payday-based budget periods, reserve floor + "safe to spend", category and
   account drill-downs, Trading 212 + gold + net worth, encrypted Drive backup,
-  "Safe to spend" Glance widget, biometric lock.
+  "Safe to spend" Glance widget, biometric lock, learned classification with
+  Quick review, **e-mail first** (1.3.0: the bank e-mail names and classifies a
+  payment; per-account "Bank e-mails are the main source"; ⏳ badge; 3 h wait;
+  "Re-check names from e-mails"). Category "Fun & hobbies" is now "Fun & sport".
 
 ## Owner's PC (Windows) – build environment
 
@@ -80,7 +83,12 @@ them green and add a new scenario for every new bug.
   record never creates a second transaction within its 90-min window, and
   `DuplicateRepair` folds Wallet-only records into bank-confirmed ones.
 - Bank e-mails arrive ~6 min after the push notification; they confirm the
-  existing transaction (evidence set) instead of creating a new one.
+  existing transaction (evidence set) instead of creating a new one, and since
+  1.3.0 they are the main source of its name, description (payment message),
+  counterparty account and category (`EmailFirst`, `PaymentDetails`,
+  `Deduplicator.nameRank`). A category you picked is `categoryLocked`.
+- Test fixtures copy the WORDING of real bank messages only: never real shop
+  names, amounts, balances or payment messages from the owner's screenshots.
 - Same bank source never merges twice (two real identical payments stay two).
   Merchant names are matched fuzzily (e.g. `NYX*VeryGoodies` vs `Very Goodies`).
 - Own-account transfers: the counterparty account is recognised by account
