@@ -12,6 +12,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import io.github.joey7500.vaultflow.VaultFlowApp
+import io.github.joey7500.vaultflow.data.repository.SettingsStore
 import io.github.joey7500.vaultflow.widget.SafeToSpendWidget
 import java.util.concurrent.TimeUnit
 
@@ -32,6 +33,11 @@ class EmailSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
             return Result.success()
         }
         val result = container.emailSync.run()
+        // Once after the update to 1.3.0: give older records the names and messages of their e-mails.
+        if (result.error == null && container.settings.get(SettingsStore.EMAIL_REENRICH_DONE) == null) {
+            val recheck = container.emailSync.recheck()
+            if (recheck.error == null) container.settings.putLong(SettingsStore.EMAIL_REENRICH_DONE, System.currentTimeMillis())
+        }
         if (result.processed > 0) SafeToSpendWidget.refresh(applicationContext)
         // Authentication problems need the user; network hiccups are retried.
         return if (result.error == null || result.error.contains("App Password")) Result.success() else Result.retry()

@@ -234,6 +234,10 @@ interface CaptureLogDao {
     @Query("DELETE FROM capture_log WHERE postedAtMillis < :before")
     suspend fun purgeBefore(before: Long)
 
+    /** Stored copies of bank e-mails that changed a transaction (used to re-check names). */
+    @Query("SELECT * FROM capture_log WHERE packageName LIKE 'mail:%' AND transactionId IS NOT NULL ORDER BY postedAtMillis")
+    suspend fun getEmailEntries(): List<CaptureLogEntity>
+
     @Query("DELETE FROM capture_log")
     suspend fun deleteAll()
 }

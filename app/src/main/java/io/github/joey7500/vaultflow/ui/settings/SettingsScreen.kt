@@ -480,6 +480,12 @@ private fun GmailCard(vm: SettingsViewModel) {
         }
         if (has) {
             Text(status, style = MaterialTheme.typography.bodySmall, color = if (status.contains("Error")) VaultColors.Amber else VaultColors.Muted)
+            OutlinedButton(onClick = vm::recheckNames, modifier = Modifier.padding(top = 6.dp)) { Text("Re-check names from e-mails") }
+            Text(
+                "Re-reads the bank e-mails of the last 60 days (read-only) and gives the payments they belong to the " +
+                    "e-mail's name, payment message and category. Never adds payments; a category you picked stays.",
+                style = MaterialTheme.typography.bodySmall, color = VaultColors.Muted,
+            )
             Spacer(Modifier.height(8.dp))
             Text("Wait for the bank e-mail", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

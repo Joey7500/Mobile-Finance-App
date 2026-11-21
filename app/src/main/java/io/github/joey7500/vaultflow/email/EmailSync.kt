@@ -13,6 +13,8 @@ import kotlinx.coroutines.withContext
 
 data class EmailSyncResult(val checked: Int, val processed: Int, val error: String?)
 
+data class RecheckResult(val checkedMails: Int, val updated: Int, val error: String?)
+
 /**
  * Pulls bank e-mails from the dedicated Gmail inbox and feeds them through the
  * same fusion pipeline as notifications. Every e-mail is processed once.
@@ -68,6 +70,36 @@ class EmailSync(
         settings.putLong(SettingsStore.EMAIL_LAST_SYNC_AT, now)
         settings.put(SettingsStore.EMAIL_LAST_RESULT, "OK · ${mails.size} e-mails checked · $processed processed")
         EmailSyncResult(mails.size, processed, null)
+    }
+
+    /**
+     * Settings → "Re-check names from e-mails" (and once after the update to 1.3.0): re-reads the
+     * bank e-mails of the last [days] days and enriches the records that already contain them
+     * (name, payment message, counterparty account, category unless you picked it). Read-only on
+     * Gmail; it never creates records. The capture log's stored copies are used first, offline.
+     */
+    suspend fun recheck(days: Int = 60): RecheckResult = lock.withLock {
+        val updated = finance.reenrichFromCaptureLog().toMutableSet()
+        val address = vault.get(SecretVault.GMAIL_ADDRESS)
+        val password = vault.get(SecretVault.GMAIL_APP_PASSWORD)
+        if (address.isNullOrBlank() || password.isNullOrBlank()) {
+            finance.logRecheck(0, updated.size)
+            return@withLock RecheckResult(0, updated.size, "Gmail is not set up")
+        }
+        val mails = try {
+            withContext(Dispatchers.IO) {
+                ImapMailFetcher.fetch(address, password, System.currentTimeMillis() - days * DAY, max = 600)
+            }
+        } catch (e: Exception) {
+            finance.logRecheck(0, updated.size)
+            return@withLock RecheckResult(0, updated.size, e.message ?: e.javaClass.simpleName)
+        }
+        val incoming = mails
+            .filter { AmountParser.containsMoney(it.subject + "\n" + it.text) }
+            .map { IncomingMessage(Channel.EMAIL, "mail:" + it.from, it.messageId, it.receivedAtMillis, it.subject, it.text) }
+        updated += finance.reenrichFromEmails(incoming)
+        finance.logRecheck(incoming.size, updated.size)
+        RecheckResult(incoming.size, updated.size, null)
     }
 
     private companion object {

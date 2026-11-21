@@ -24,6 +24,8 @@ import io.github.joey7500.vaultflow.domain.ingest.IncomingMessage
 import io.github.joey7500.vaultflow.domain.ingest.IngestContext
 import io.github.joey7500.vaultflow.domain.ingest.IngestionPipeline
 import io.github.joey7500.vaultflow.domain.ingest.NotificationParser
+import io.github.joey7500.vaultflow.domain.ingest.Channel
+import io.github.joey7500.vaultflow.domain.ingest.Reenricher
 import io.github.joey7500.vaultflow.domain.model.Account
 import io.github.joey7500.vaultflow.domain.model.Category
 import io.github.joey7500.vaultflow.domain.model.ClassificationRule
@@ -315,13 +317,83 @@ class FinanceRepository(
             db.captureLog().insert(
                 CaptureLogEntity(
                     postedAtMillis = msg.receivedAtMillis, packageName = msg.sourceKey,
-                    title = msg.title.orEmpty().take(120), text = msg.text.orEmpty().take(400),
+                    title = msg.title.orEmpty().take(120), text = msg.text.orEmpty().take(CAPTURE_LOG_TEXT_LIMIT),
                     outcome = result.outcome, transactionId = firstId,
                 ),
             )
         }
         db.captureLog().purgeBefore(now - CAPTURE_LOG_RETENTION_MS)
         true
+    }
+
+    // ───────────────────────── re-check names from e-mails ─────────────────────────
+
+    private suspend fun reenrichContext(): IngestContext {
+        val accounts = db.accounts().getAll().map { it.toDomain() }
+        val categories = db.categories().getAll()
+        return IngestContext(
+            defaultAccountId = null,
+            rules = db.rules().getAll().map { it.toDomain() },
+            accounts = accounts,
+            categoryIdByKey = categories.filter { it.key != null }.associate { it.key!! to it.id },
+            recentTransactions = emptyList(),
+            fx = null,
+            categoryKindById = categories.associate { it.id to it.toDomain().kind },
+        )
+    }
+
+    /**
+     * Offline pass: the capture log keeps the first 400 characters of every bank e-mail and the
+     * record it changed. Enough for card shops; a cut-off last line is dropped so a payment
+     * message is never stored half. Enrich-only (see Reenricher). Returns the updated record ids.
+     */
+    suspend fun reenrichFromCaptureLog(): Set<Long> = ingestMutex.withLock {
+        val ctx = reenrichContext()
+        val updated = mutableSetOf<Long>()
+        db.withTransaction {
+            for (log in db.captureLog().getEmailEntries()) {
+                val tx = db.transactions().get(log.transactionId ?: continue)?.toDomain() ?: continue
+                val text = if (log.text.length >= CAPTURE_LOG_TEXT_LIMIT) log.text.substringBeforeLast('\n') else log.text
+                val mail = IncomingMessage(Channel.EMAIL, log.packageName, "log:${log.id}", log.postedAtMillis, log.title, text)
+                val next = Reenricher.enrich(tx, mail, ctx) ?: continue
+                db.transactions().update(next.toEntity())
+                updated += tx.id
+            }
+        }
+        updated
+    }
+
+    /**
+     * Gmail pass: bank e-mails fetched again (read-only). Each one is matched to the record that
+     * already contains it by its stored fingerprint (sender, Message-ID, subject, text), so it can
+     * only enrich that record: never a new record, never a duplicate. Returns the updated record ids.
+     */
+    suspend fun reenrichFromEmails(mails: List<IncomingMessage>): Set<Long> = ingestMutex.withLock {
+        val ctx = reenrichContext()
+        val records = db.transactions().getSince(System.currentTimeMillis() - 400L * 24 * 3600 * 1000).map { it.toDomain() }
+        val byFingerprint = HashMap<String, Transaction>()
+        records.forEach { t -> (t.fingerprints + listOfNotNull(t.fingerprint)).forEach { byFingerprint[it] = t } }
+        val updated = mutableSetOf<Long>()
+        db.withTransaction {
+            for (mail in mails.sortedBy { it.receivedAtMillis }) {
+                val tx = byFingerprint[Reenricher.fingerprintOf(mail)] ?: continue
+                val current = db.transactions().get(tx.id)?.toDomain() ?: continue
+                val next = Reenricher.enrich(current, mail, ctx) ?: continue
+                db.transactions().update(next.toEntity())
+                updated += tx.id
+            }
+        }
+        updated
+    }
+
+    /** Notes a finished re-check in the capture log. */
+    suspend fun logRecheck(checkedMails: Int, updated: Int) {
+        db.captureLog().insert(
+            CaptureLogEntity(
+                postedAtMillis = System.currentTimeMillis(), packageName = "vaultflow", title = "Re-check names from e-mails", text = "",
+                outcome = "$checkedMails e-mails re-read, $updated payments updated (name, message, category)", transactionId = null,
+            ),
+        )
     }
 
     /**
@@ -475,6 +547,9 @@ class FinanceRepository(
 
     companion object {
         const val CAPTURE_LOG_RETENTION_MS = 365L * 24 * 3600 * 1000
+
+        /** The capture log keeps this many characters of a message's text. */
+        const val CAPTURE_LOG_TEXT_LIMIT = 400
         val KNOWN_BANK_MAIL_DOMAINS = listOf(
             "csas.cz", "kb.cz", "csob.cz", "fio.cz", "airbank.cz", "moneta.cz", "rb.cz", "unicreditgroup.cz",
             "mbank.cz", "equabank.cz", "creditas.cz", "partners.cz", "revolut.com",

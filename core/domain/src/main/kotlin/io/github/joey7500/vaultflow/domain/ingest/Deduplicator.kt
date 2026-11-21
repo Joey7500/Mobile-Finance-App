@@ -247,6 +247,12 @@ object Deduplicator {
         return if (nameRank(incoming) > nameRank(existing)) incoming else existing
     }
 
+    /** Would a bank e-mail naming this payment [emailName] replace the record's current name? */
+    fun prefersEmailName(existing: Transaction, emailName: String): Boolean {
+        val mail = existing.copy(merchant = emailName, nameSource = EMAIL, evidence = setOf(EMAIL))
+        return nameSourceRecord(existing, mail) === mail
+    }
+
     /**
      * The report whose category the fused record keeps. A category you picked never changes;
      * otherwise the bank e-mail's classification (made from its name, payment message and

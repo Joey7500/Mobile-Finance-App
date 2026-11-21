@@ -150,6 +150,17 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         say(r.fold({ "Connected ✓ · $it e-mails in the last 3 days" }, { it.message ?: "Connection failed" }))
     }
 
+    fun recheckNames() = viewModelScope.launch {
+        busy.value = true
+        val r = c.emailSync.recheck()
+        busy.value = false
+        if (r.error == null) c.settings.putLong(SettingsStore.EMAIL_REENRICH_DONE, System.currentTimeMillis())
+        say(
+            r.error?.let { "Re-check: ${r.updated} payments updated from stored copies; Gmail failed: $it" }
+                ?: "Re-read ${r.checkedMails} bank e-mails · ${r.updated} payments updated",
+        )
+    }
+
     fun syncEmailNow() = viewModelScope.launch {
         busy.value = true
         val r = c.emailSync.run()
