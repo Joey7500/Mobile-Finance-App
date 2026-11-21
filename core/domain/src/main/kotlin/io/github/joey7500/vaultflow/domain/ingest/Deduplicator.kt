@@ -94,8 +94,10 @@ object Deduplicator {
         // e-mail), which report each payment exactly once, may split two identical purchases.
         val walletReport = candidate.source == GOOGLE_WALLET
         val dateOnlyMail = candidate.source == EMAIL && candidate.earliestMillis != null
+        // A record still known only by the date of its e-mail (a Wallet hint may have folded in,
+        // it never fixes the time) accepts the bank push that was delivered late.
         val latePush = (candidate.source == BANK_NOTIFICATION || walletReport) &&
-            existing.evidence == setOf(EMAIL) && existing.earliestMillis != null &&
+            EMAIL in existing.evidence && BANK_NOTIFICATION !in existing.evidence && existing.earliestMillis != null &&
             candidate.timestampMillis >= existing.earliestMillis &&
             candidate.timestampMillis - existing.timestampMillis <= LATE_PUSH_MS
         val window = when {
@@ -148,9 +150,23 @@ object Deduplicator {
         // Two apps reporting the exact same amount on the SAME account within 3 minutes is
         // the same payment, however differently they spell the merchant. Only for a source's FIRST
         // report of that record: a Wallet re-post must match by name (another shop may charge the
-        // same amount at that moment).
+        // same amount at that moment). A date-only e-mail's time is its ARRIVAL, not the payment
+        // moment: it takes this shortcut only with a Wallet report (both are card payments), never
+        // with a bank push, which may be a different payment of the same amount (a transfer).
         val sameAccount = candidate.accountId != null && candidate.accountId == existing.accountId
-        if (!strict && sameAccount && candidate.source !in existing.evidence && abs(candidate.timestampMillis - existing.timestampMillis) <= SAME_MOMENT_MS && candidate.amountCzkMinor == existing.amountCzkMinor) {
+        val sameAmount = candidate.amountCzkMinor == existing.amountCzkMinor
+        val bothExact = candidate.earliestMillis == null && existing.earliestMillis == null
+        val cardHint = GOOGLE_WALLET in candidate.evidence || GOOGLE_WALLET in existing.evidence
+        if (!strict && sameAccount && sameAmount && candidate.source !in existing.evidence && (bothExact || cardHint) &&
+            abs(candidate.timestampMillis - existing.timestampMillis) <= SAME_MOMENT_MS
+        ) {
+            return true
+        }
+        // A generic bank title ("Odešla platba") names nothing, so it cannot contradict the other
+        // report: a push delivered late and its exact-time transfer e-mail are one payment.
+        if (!strict && sameAccount && sameAmount && bothExact &&
+            (GenericNames.isGeneric(candidate.merchant) || GenericNames.isGeneric(existing.merchant))
+        ) {
             return true
         }
         return merchantsCompatible(candidate.merchant, existing.merchant, strict)

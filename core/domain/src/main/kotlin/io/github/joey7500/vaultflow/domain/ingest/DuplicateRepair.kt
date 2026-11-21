@@ -98,16 +98,23 @@ object DuplicateRepair {
      * same amount, compatible shop name, same day, and each has exactly one such partner. Older
      * versions created these when a date-only e-mail arrived more than 3 h late. It can also be
      * two real payments (one missed its push, the other its e-mail), so you choose.
+     *
+     * Also: an e-mail-only record within 3 minutes of a record the bank app pushed AND an e-mail
+     * confirmed, same account, amount and shop: what version 1.1 left when it ingested one e-mail
+     * twice (the second copy was timed 6 min before its arrival, i.e. on the push's minute).
      */
     fun suspects(transactions: List<Transaction>, zone: ZoneId): List<Pair<Transaction, Transaction>> {
         fun day(t: Transaction) = Instant.ofEpochMilli(t.timestampMillis).atZone(zone).toLocalDate()
         val mailOnly = transactions.filter { it.evidence == setOf(TransactionSource.EMAIL) && it.amountCzkMinor < 0 }
-        val pushedNoMail = transactions.filter {
-            TransactionSource.BANK_NOTIFICATION in it.evidence && TransactionSource.EMAIL !in it.evidence && it.amountCzkMinor < 0
-        }
-        fun partners(m: Transaction) = pushedNoMail.filter { p ->
+        val pushed = transactions.filter { TransactionSource.BANK_NOTIFICATION in it.evidence && it.amountCzkMinor < 0 }
+        fun partners(m: Transaction) = pushed.filter { p ->
             p.accountId == m.accountId && p.amountCzkMinor == m.amountCzkMinor && day(p) == day(m) &&
-                p.timestampMillis <= m.timestampMillis && Deduplicator.merchantsCompatible(p.merchant, m.merchant)
+                Deduplicator.merchantsCompatible(p.merchant, m.merchant) &&
+                if (TransactionSource.EMAIL in p.evidence) {
+                    kotlin.math.abs(p.timestampMillis - m.timestampMillis) <= Deduplicator.SAME_MOMENT_MS
+                } else {
+                    p.timestampMillis <= m.timestampMillis
+                }
         }
         return mailOnly.mapNotNull { m ->
             val p = partners(m).singleOrNull() ?: return@mapNotNull null
